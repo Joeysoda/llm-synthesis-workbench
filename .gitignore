@@ -1,0 +1,14 @@
+.venv/
+runtime/
+upstream/
+__pycache__/
+.pytest_cache/
+.coverage
+*.pyc
+.env
+.env.*
+!.env.example
+web/.next/
+web/dist/
+web/.wrangler/
+web/node_modules/

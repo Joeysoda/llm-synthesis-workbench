@@ -1,0 +1,78 @@
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: docker/gateway.Dockerfile
+    environment:
+      GATEWAY_HOST: 0.0.0.0
+      GATEWAY_ADVERTISE_HOST: gateway
+      GATEWAY_PUBLIC_HOST: 127.0.0.1
+      GATEWAY_PORT: 18000
+      EASY_DATASET_BASE_URL: http://easy-dataset:1717
+      RESEARCH_ROOT: /opt/upstream
+      SYNTHETIC_REPO: /opt/upstream/synthetic-data-kit
+      SYNTHETIC_CLI: /app/.venv/bin/synthetic-data-kit
+      SYNLOGIC_REPO: /opt/upstream/synlogic
+      EASY_DATASET_REPO: /opt/upstream/easy-dataset
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-v4-pro}
+      LLM_JUDGE_MODEL: ${LLM_JUDGE_MODEL:-deepseek-v4-pro}
+      LLM_CREDENTIAL_ROTATED: ${LLM_CREDENTIAL_ROTATED:-false}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      VISION_BASE_URL: ${VISION_BASE_URL:-}
+      VISION_MODEL: ${VISION_MODEL:-}
+      VISION_API_KEY: ${VISION_API_KEY:-}
+    volumes:
+      - ./runtime:/app/runtime
+    ports:
+      - "127.0.0.1:18000:18000"
+    depends_on:
+      easy-dataset:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:18000/api/v1/health >/dev/null"]
+      interval: 10s
+      timeout: 4s
+      retries: 12
+      start_period: 15s
+
+  easy-dataset:
+    build:
+      context: .
+      dockerfile: docker/easy-dataset.Dockerfile
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: file:/app/prisma/db.sqlite
+      LOCAL_DB_PATH: /app/local-db
+    volumes:
+      - ./runtime/docker/easy-prisma:/app/prisma
+      - ./runtime/docker/easy-local-db:/app/local-db
+    ports:
+      - "127.0.0.1:1717:1717"
+    healthcheck:
+      test:
+        ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:1717/api/projects',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 20s
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_GATEWAY_BASE: http://127.0.0.1:18000
+    ports:
+      - "127.0.0.1:5173:5173"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test:
+        ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:5173',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
