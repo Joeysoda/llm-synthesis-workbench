@@ -6,6 +6,7 @@ import sqlite3
 import uuid
 import csv
 import io
+import importlib.metadata
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
 from .adapters.easy_dataset import build_easy_dataset_tools
+from .adapters.cleanlab import build_cleanlab_tools
+from .adapters.kaqg import build_kaqg_tools
 from .adapters.synlogic import build_synlogic_tools
 from .adapters.synthetic import build_synthetic_tools, cot_enhance_records
 from .config import settings
@@ -26,8 +29,11 @@ from .runner import RunManager
 from .schemas import (
     EasyDatasetJobCreate,
     EasyDatasetPreviewRequest,
+    CleanlabDecisionRequest,
+    CleanlabJobCreate,
     ExportRequest,
     ProbeRequest,
+    KaqgJobCreate,
     ProjectCreate,
     RunCreate,
     SamplePatch,
@@ -61,13 +67,19 @@ registry = ToolRegistry()
 registry.register_many(build_synthetic_tools(database, settings))
 registry.register_many(build_easy_dataset_tools(database, settings))
 registry.register_many(build_synlogic_tools(database, settings))
+registry.register_many(build_kaqg_tools(database, settings))
+registry.register_many(build_cleanlab_tools(database, settings))
 manager = RunManager(database, registry, settings)
 
-TOOL_IDS = {"synthetic-data-kit", "easy-dataset", "synlogic", "legacy"}
+TOOL_IDS = {
+    "synthetic-data-kit", "easy-dataset", "synlogic", "kaqg", "cleanlab", "legacy"
+}
 TOOL_NAMES = {
     "synthetic-data-kit": "Synthetic Data Kit",
     "easy-dataset": "Easy Dataset",
     "synlogic": "SynLogic",
+    "kaqg": "KAQG",
+    "cleanlab": "Cleanlab",
     "legacy": "历史实验",
 }
 PROBE_RESULTS: dict[str, dict[str, Any]] = {}
@@ -194,6 +206,22 @@ async def integrations() -> list[dict[str, Any]]:
             "status": "ready" if settings.synlogic_repo.exists() else "missing",
             "mode": "Python verifier",
             "model": "deterministic",
+            "llm_ready": True,
+        },
+        {
+            "id": "kaqg",
+            "name": "KAQG",
+            "status": "ready" if settings.kaqg_repo.exists() else "missing",
+            "mode": "Neo4j + MQTT worker",
+            "model": settings.llm_model,
+            "llm_ready": settings.llm_ready,
+        },
+        {
+            "id": "cleanlab",
+            "name": "Cleanlab",
+            "status": "ready",
+            "mode": "local Python",
+            "model": "TF-IDF + LogisticRegression",
             "llm_ready": True,
         },
     ]
@@ -335,6 +363,30 @@ async def patch_sample(sample_id: str, payload: SamplePatch) -> dict[str, Any]:
 
 
 def encode_export(samples: list[dict[str, Any]], output_format: str) -> list[str]:
+    cleanlab_samples = bool(samples) and all(
+        item.get("task_type") == "data_quality_audit" for item in samples
+    )
+    if cleanlab_samples and output_format in {"jsonl", "json"}:
+        cleaned = []
+        for item in samples:
+            quality = item.get("quality", {})
+            cleaned.append(
+                {
+                    "id": item["source"].get("row_id", item["id"]),
+                    "text": item["question"],
+                    "original_label": item["source"].get("original_label", ""),
+                    "current_label": item["answer"],
+                    "suggested_label": quality.get("suggested_label", ""),
+                    "decision": quality.get("decision", "pending"),
+                    "label_score": quality.get("label_score"),
+                    "outlier_score": quality.get("outlier_score"),
+                    "near_duplicate_score": quality.get("near_duplicate_score"),
+                    "raw_record": item["source"].get("raw_record", {}),
+                }
+            )
+        if output_format == "jsonl":
+            return [json.dumps(item, ensure_ascii=False) for item in cleaned]
+        return [json.dumps(cleaned, ensure_ascii=False, indent=2)]
     if output_format == "jsonl":
         return [json.dumps(item, ensure_ascii=False) for item in samples]
     if output_format == "json":
@@ -385,6 +437,29 @@ def encode_export(samples: list[dict[str, Any]], output_format: str) -> list[str
     if output_format == "csv":
         stream = io.StringIO()
         writer = csv.writer(stream)
+        if cleanlab_samples:
+            writer.writerow(
+                [
+                    "id", "text", "original_label", "current_label", "suggested_label",
+                    "decision", "label_score", "outlier_score", "near_duplicate_score",
+                ]
+            )
+            for item in samples:
+                quality = item.get("quality", {})
+                writer.writerow(
+                    [
+                        item["source"].get("row_id", item["id"]),
+                        item["question"],
+                        item["source"].get("original_label", ""),
+                        item["answer"],
+                        quality.get("suggested_label", ""),
+                        quality.get("decision", "pending"),
+                        quality.get("label_score", ""),
+                        quality.get("outlier_score", ""),
+                        quality.get("near_duplicate_score", ""),
+                    ]
+                )
+            return [stream.getvalue().rstrip("\n")]
         writer.writerow(["id", "task_type", "question", "answer", "reasoning", "human_status"])
         for item in samples:
             writer.writerow(
@@ -564,6 +639,18 @@ async def v2_catalog() -> list[dict[str, Any]]:
             "name": "SynLogic",
             "summary": "生成 Arrow Maze 逻辑题，并使用上游规则验证器逐条校验。",
             "workflows": ["arrow-maze"],
+        },
+        {
+            "id": "kaqg",
+            "name": "KAQG",
+            "summary": "从 PDF 构建 Neo4j 知识图谱，生成并评估难度可控的单选题。",
+            "workflows": ["knowledge-graph-scq"],
+        },
+        {
+            "id": "cleanlab",
+            "name": "Cleanlab",
+            "summary": "在本机检查文本分类数据中的错标签、异常和近重复样本。",
+            "workflows": ["text-classification-audit"],
         },
     ]
 
@@ -766,6 +853,108 @@ async def v2_synlogic_verify(
     return run
 
 
+@app.post("/api/v2/kaqg/projects/{project_id}/jobs", status_code=202)
+async def v2_kaqg_job(project_id: str, payload: KaqgJobCreate) -> dict[str, Any]:
+    require_tool_project(project_id, "kaqg")
+    validate_project_assets(project_id, [payload.asset_id])
+    asset = database.get_asset(payload.asset_id)
+    if not asset or Path(asset["filename"]).suffix.lower() != ".pdf":
+        raise HTTPException(status_code=422, detail="KAQG 只接受有文本层的 PDF")
+    total = sum(payload.difficulty_counts.model_dump().values())
+    if not 1 <= total <= 30:
+        raise HTTPException(status_code=422, detail="题目总数必须在 1 到 30 之间")
+    if not payload.confirmed:
+        raise HTTPException(status_code=409, detail="请先确认知识图谱和模型调用参数")
+    run = database.create_run(
+        project_id,
+        "kaqg_generate_evaluate",
+        payload.model_dump(exclude={"confirmed"}),
+        workflow_type="knowledge-graph-scq",
+        stages=stage_rows(
+            ("check", "检查环境"),
+            ("parse", "解析 PDF"),
+            ("graph", "构建知识图谱"),
+            ("generate", "生成试题"),
+            ("evaluate", "评估试题"),
+            ("export", "整理结果"),
+        ),
+    )
+    manager.start(run["id"])
+    return run
+
+
+@app.post("/api/v2/cleanlab/projects/{project_id}/jobs", status_code=202)
+async def v2_cleanlab_job(
+    project_id: str, payload: CleanlabJobCreate
+) -> dict[str, Any]:
+    require_tool_project(project_id, "cleanlab")
+    if payload.source_type == "asset":
+        if not payload.asset_id:
+            raise HTTPException(status_code=422, detail="请先选择 CSV 或 JSONL 数据文件")
+        asset_ids = [payload.asset_id]
+        if payload.pred_probs_asset_id:
+            asset_ids.append(payload.pred_probs_asset_id)
+        validate_project_assets(project_id, asset_ids)
+        asset = database.get_asset(payload.asset_id)
+        if not asset or Path(asset["filename"]).suffix.lower() not in {".csv", ".json", ".jsonl"}:
+            raise HTTPException(status_code=422, detail="Cleanlab 只接受 CSV、JSON 或 JSONL")
+    else:
+        if not payload.source_job_id:
+            raise HTTPException(status_code=422, detail="请选择一个已完成任务")
+        source_run = database.get_run(payload.source_job_id)
+        if not source_run or source_run["status"] != "succeeded":
+            raise HTTPException(status_code=422, detail="只能导入已完成的平台任务")
+    if not payload.confirmed:
+        raise HTTPException(status_code=409, detail="请先确认本机数据质量检查参数")
+    run = database.create_run(
+        project_id,
+        "cleanlab_audit_dataset",
+        payload.model_dump(exclude={"confirmed"}),
+        workflow_type="text-classification-audit",
+        stages=stage_rows(
+            ("parse", "读取并校验数据"),
+            ("features", "构建文本特征"),
+            ("audit", "检查数据质量"),
+            ("export", "整理审核结果"),
+        ),
+    )
+    manager.start(run["id"])
+    return run
+
+
+@app.patch("/api/v2/cleanlab/samples/{sample_id:path}/decision")
+async def v2_cleanlab_decision(
+    sample_id: str, payload: CleanlabDecisionRequest
+) -> dict[str, Any]:
+    sample = database.get_sample(sample_id)
+    if not sample or sample["task_type"] != "data_quality_audit":
+        raise HTTPException(status_code=404, detail="Cleanlab 审核样本不存在")
+    original = str(sample["source"].get("original_label", ""))
+    suggested = str(sample["quality"].get("suggested_label", ""))
+    if payload.decision == "accept_suggestion":
+        if not suggested:
+            raise HTTPException(status_code=422, detail="该样本没有可接受的建议标签")
+        current = suggested
+    elif payload.decision == "keep_original":
+        current = original
+    else:
+        if not payload.corrected_label or not payload.corrected_label.strip():
+            raise HTTPException(status_code=422, detail="手动修改需要填写标签")
+        current = payload.corrected_label.strip()
+    updated = database.update_sample(
+        sample_id,
+        {
+            "answer": current,
+            "quality": {
+                "decision": payload.decision,
+                "human_status": "confirmed",
+                "current_label": current,
+            },
+        },
+    )
+    return updated or {}
+
+
 @app.get("/api/v2/jobs")
 async def v2_list_jobs(
     project_id: str | None = None,
@@ -818,6 +1007,27 @@ async def v2_cancel_job(job_id: str) -> dict[str, Any]:
     return await cancel_run(job_id)
 
 
+@app.get("/api/v2/jobs/{job_id}/artifacts/{artifact_name}")
+async def v2_job_artifact(job_id: str, artifact_name: str) -> FileResponse:
+    run = require_run(job_id)
+    names = {
+        "kaqg-graph": "kaqg-graph.json",
+        "kaqg-questions": "kaqg-questions.jsonl",
+        "kaqg-record": "kaqg-run-record.json",
+        "cleanlab-audit": "cleanlab-audit.jsonl",
+    }
+    filename = names.get(artifact_name)
+    if not filename:
+        raise HTTPException(status_code=404, detail="产物不存在")
+    path = ensure_within(
+        settings.runtime_root / "runs" / run["project_id"] / job_id / filename,
+        settings.runtime_root,
+    )
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="产物尚未生成")
+    return FileResponse(path, filename=path.name)
+
+
 async def integration_snapshot() -> dict[str, Any]:
     easy_reachable = False
     easy_error = ""
@@ -829,6 +1039,16 @@ async def integration_snapshot() -> dict[str, Any]:
                 easy_error = f"HTTP {response.status_code}"
     except Exception as exc:
         easy_error = type(exc).__name__
+    kaqg_reachable = False
+    kaqg_error = ""
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            response = await client.get(f"{settings.kaqg_worker_base_url}/health")
+            kaqg_reachable = response.is_success
+            if not response.is_success:
+                kaqg_error = f"HTTP {response.status_code}"
+    except Exception as exc:
+        kaqg_error = type(exc).__name__
     credential_state = (
         "verified"
         if PROBE_RESULTS.get("text", {}).get("ok")
@@ -882,6 +1102,17 @@ async def integration_snapshot() -> dict[str, Any]:
                 "status": "available" if settings.synlogic_repo.exists() else "missing",
                 "path": str(settings.synlogic_repo),
                 "version": git_version(settings.synlogic_repo),
+            },
+            "kaqg_worker": {
+                "status": "reachable" if kaqg_reachable else "unreachable",
+                "endpoint": settings.kaqg_worker_base_url,
+                "version": git_version(settings.kaqg_repo),
+                "message": kaqg_error,
+            },
+            "cleanlab": {
+                "status": "available",
+                "version": importlib.metadata.version("cleanlab"),
+                "message": "本机运行，不使用外部模型",
             },
         },
     }
@@ -968,5 +1199,19 @@ async def v2_probe(profile: str, payload: ProbeRequest) -> dict[str, Any]:
             "ok": item["status"] == "reachable",
             "code": item["status"],
             "message": "Easy Dataset 服务可达" if item["status"] == "reachable" else "Easy Dataset 服务不可达",
+        }
+    if profile == "kaqg":
+        snapshot = await integration_snapshot()
+        item = snapshot["services"]["kaqg_worker"]
+        return {
+            "ok": item["status"] == "reachable",
+            "code": item["status"],
+            "message": "KAQG、Neo4j 与 MQTT 可达" if item["status"] == "reachable" else "KAQG worker 或依赖服务不可达",
+        }
+    if profile == "cleanlab":
+        return {
+            "ok": True,
+            "code": "available",
+            "message": f"Cleanlab {importlib.metadata.version('cleanlab')} 可用",
         }
     raise HTTPException(status_code=404, detail="未知的集成配置")

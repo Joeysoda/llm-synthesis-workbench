@@ -28,12 +28,14 @@ test("server-renders the Chinese local workbench shell", async () => {
   assert.match(html, /Synthetic Data Kit/);
   assert.match(html, /Easy Dataset/);
   assert.match(html, /SynLogic/);
+  assert.match(html, /KAQG/);
+  assert.match(html, /Cleanlab/);
   assert.match(html, /仅限本机访问/);
   assert.doesNotMatch(html, /Your site is taking shape|react-loading-skeleton/);
 });
 
-test("client implements six routes and plain desktop layout", async () => {
-  const [page, css, layout, packageJson, synthetic, easy, synlogic, tasks, settings] = await Promise.all([
+test("client implements eight routes and plain desktop layout", async () => {
+  const [page, css, layout, packageJson, synthetic, easy, synlogic, kaqg, cleanlab, tasks, settings] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -41,6 +43,8 @@ test("client implements six routes and plain desktop layout", async () => {
     readFile(new URL("../app/synthetic/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/easy-dataset/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/synlogic/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/kaqg/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/cleanlab/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/tasks/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/settings/page.tsx", import.meta.url), "utf8"),
   ]);
@@ -53,6 +57,13 @@ test("client implements six routes and plain desktop layout", async () => {
   assert.match(easy, /图片问答/);
   assert.match(easy, /评估数据/);
   assert.match(synlogic, /调用原始验证器/);
+  assert.match(kaqg, /构建图谱并生成试题/);
+  assert.match(kaqg, /知识图谱摘要/);
+  assert.match(kaqg, /kaqg-graph/);
+  assert.match(cleanlab, /上传分类数据/);
+  assert.match(cleanlab, /导入已完成任务/);
+  assert.match(cleanlab, /accept_suggestion/);
+  assert.match(cleanlab, /cleanlab-audit/);
   assert.match(tasks, /查看需要处理的任务/);
   assert.match(settings, /LLM_CREDENTIAL_ROTATED=true/);
   assert.match(css, /\.sidebar/);

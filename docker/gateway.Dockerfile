@@ -7,13 +7,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
     PATH=/app/.venv/bin:$PATH
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
 COPY pyproject.toml uv.lock ./
 COPY upstream/synthetic-data-kit /opt/upstream/synthetic-data-kit
 COPY upstream/synlogic /opt/upstream/synlogic
+COPY upstream/kaqg /opt/upstream/kaqg
 
 RUN pip install --no-cache-dir uv \
     && uv sync --frozen --no-dev \

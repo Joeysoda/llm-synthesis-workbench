@@ -16,7 +16,10 @@ class Settings:
     synthetic_cli: Path
     synlogic_repo: Path
     easy_dataset_repo: Path
+    kaqg_repo: Path
+    kaqg_commit: str
     easy_dataset_base_url: str
+    kaqg_worker_base_url: str
     llm_base_url: str
     llm_model: str
     llm_judge_model: str
@@ -136,8 +139,24 @@ def load_settings() -> Settings:
                 ),
             )
         ),
+        kaqg_repo=Path(
+            os.environ.get(
+                "KAQG_REPO",
+                str(
+                    research_root / "kaqg"
+                    if research_root == bundled_upstream
+                    else research_root / "repos" / "kaqg"
+                ),
+            )
+        ),
+        kaqg_commit=os.environ.get(
+            "KAQG_COMMIT", "aa80de0082d5c217bbcb887ba386c2a85518c7d6"
+        ),
         easy_dataset_base_url=os.environ.get(
             "EASY_DATASET_BASE_URL", "http://127.0.0.1:1717"
+        ).rstrip("/"),
+        kaqg_worker_base_url=os.environ.get(
+            "KAQG_WORKER_BASE_URL", "http://127.0.0.1:18100"
         ).rstrip("/"),
         llm_base_url=os.environ.get("LLM_BASE_URL", "https://api.deepseek.com").rstrip("/"),
         llm_model=os.environ.get("LLM_MODEL", "deepseek-v4-pro"),

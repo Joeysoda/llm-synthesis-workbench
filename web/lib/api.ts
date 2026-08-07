@@ -1,7 +1,12 @@
 export const API_BASE =
   process.env.NEXT_PUBLIC_GATEWAY_BASE || "http://127.0.0.1:18000";
 
-export type ToolId = "synthetic-data-kit" | "easy-dataset" | "synlogic";
+export type ToolId =
+  | "synthetic-data-kit"
+  | "easy-dataset"
+  | "synlogic"
+  | "kaqg"
+  | "cleanlab";
 
 export type Project = {
   id: string;
@@ -59,6 +64,20 @@ export type Sample = {
     rule_passed?: boolean;
     model_score?: number;
     human_status?: string;
+    target_difficulty?: string;
+    difficulty_code?: number;
+    feature_scores?: Record<string, number>;
+    decision?: string;
+    original_label?: string;
+    suggested_label?: string;
+    current_label?: string;
+    label_score?: number | null;
+    is_label_issue?: boolean;
+    outlier_score?: number | null;
+    is_outlier_issue?: boolean;
+    near_duplicate_score?: number | null;
+    is_near_duplicate_issue?: boolean;
+    near_duplicate_sets?: unknown[];
   };
 };
 
@@ -148,4 +167,8 @@ export function patchSample(
 
 export function exportUrl(jobId: string) {
   return `${API_BASE}/api/v2/jobs/${jobId}/export`;
+}
+
+export function artifactUrl(jobId: string, artifactName: string) {
+  return `${API_BASE}/api/v2/jobs/${jobId}/artifacts/${artifactName}`;
 }

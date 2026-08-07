@@ -8,6 +8,8 @@ const toolLabels: Record<string, string> = {
   "synthetic-data-kit": "Synthetic Data Kit",
   "easy-dataset": "Easy Dataset",
   synlogic: "SynLogic",
+  kaqg: "KAQG",
+  cleanlab: "Cleanlab",
   legacy: "历史实验",
 };
 
@@ -21,6 +23,8 @@ const workflowLabels: Record<string, string> = {
   "image-qa": "图片问答",
   evaluation: "评估数据",
   "arrow-maze": "Arrow Maze",
+  "knowledge-graph-scq": "知识图谱单选题",
+  "text-classification-audit": "文本分类质量检查",
 };
 
 export default function TasksPage() {
@@ -112,6 +116,8 @@ export default function TasksPage() {
             <option value="synthetic-data-kit">Synthetic Data Kit</option>
             <option value="easy-dataset">Easy Dataset</option>
             <option value="synlogic">SynLogic</option>
+            <option value="kaqg">KAQG</option>
+            <option value="cleanlab">Cleanlab</option>
             <option value="legacy">历史实验</option>
           </select>
         </label>

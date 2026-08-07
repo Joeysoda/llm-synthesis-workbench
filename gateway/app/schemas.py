@@ -31,7 +31,9 @@ class ExportRequest(BaseModel):
     )
 
 
-ToolId = Literal["synthetic-data-kit", "easy-dataset", "synlogic", "legacy"]
+ToolId = Literal[
+    "synthetic-data-kit", "easy-dataset", "synlogic", "kaqg", "cleanlab", "legacy"
+]
 
 
 class ToolProjectCreate(BaseModel):
@@ -101,6 +103,35 @@ class SynLogicJobCreate(BaseModel):
 class SynLogicVerifyRequest(BaseModel):
     sample_id: str
     answer: list[list[str]]
+
+
+class DifficultyCounts(BaseModel):
+    easy: int = Field(default=3, ge=0, le=10)
+    medium: int = Field(default=3, ge=0, le=10)
+    hard: int = Field(default=3, ge=0, le=10)
+
+
+class KaqgJobCreate(BaseModel):
+    asset_id: str
+    subject_name: str = Field(min_length=1, max_length=120)
+    difficulty_counts: DifficultyCounts = Field(default_factory=DifficultyCounts)
+    confirmed: bool = False
+
+
+class CleanlabJobCreate(BaseModel):
+    source_type: Literal["asset", "job"] = "asset"
+    asset_id: str | None = None
+    source_job_id: str | None = None
+    pred_probs_asset_id: str | None = None
+    id_column: str = Field(default="id", max_length=120)
+    text_column: str = Field(default="text", max_length=120)
+    label_column: str = Field(default="label", max_length=120)
+    confirmed: bool = False
+
+
+class CleanlabDecisionRequest(BaseModel):
+    decision: Literal["accept_suggestion", "keep_original", "manual"]
+    corrected_label: str | None = Field(default=None, max_length=120)
 
 
 class ProbeRequest(BaseModel):

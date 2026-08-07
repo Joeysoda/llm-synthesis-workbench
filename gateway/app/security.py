@@ -15,6 +15,7 @@ ALLOWED_EXTENSIONS = {
     ".epub",
     ".json",
     ".jsonl",
+    ".csv",
     ".png",
     ".jpg",
     ".jpeg",
@@ -44,7 +45,7 @@ def sanitize_filename(filename: str) -> str:
     if not safe or safe in {".", ".."}:
         raise ValueError("无效文件名")
     if Path(safe).suffix.lower() not in ALLOWED_EXTENSIONS:
-        raise ValueError("仅支持 MD、TXT、DOCX、PDF")
+        raise ValueError("不支持该文件格式")
     return safe
 
 

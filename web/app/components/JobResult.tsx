@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   API_BASE,
   getJob,
@@ -24,16 +24,29 @@ export function JobResult({
   jobId,
   onLoaded,
   renderSample,
+  exportFormats = ["jsonl", "alpaca", "openai-ft", "chatml", "huggingface", "csv"],
+  resultActions,
 }: {
   jobId: string;
   onLoaded?: (job: Job, samples: Sample[]) => void;
-  renderSample?: (sample: Sample, index: number) => React.ReactNode;
+  renderSample?: (
+    sample: Sample,
+    index: number,
+    onUpdated: (sample: Sample) => void,
+  ) => React.ReactNode;
+  exportFormats?: string[];
+  resultActions?: (job: Job) => React.ReactNode;
 }) {
   const [job, setJob] = useState<Job | null>(null);
   const [samples, setSamples] = useState<Sample[]>([]);
   const [index, setIndex] = useState(0);
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState("");
+  const onLoadedRef = useRef(onLoaded);
+
+  useEffect(() => {
+    onLoadedRef.current = onLoaded;
+  }, [onLoaded]);
 
   useEffect(() => {
     setJob(null);
@@ -50,7 +63,7 @@ export function JobResult({
           const rows = await getSamples(jobId);
           if (!stopped) {
             setSamples(rows);
-            onLoaded?.(next, rows);
+            onLoadedRef.current?.(next, rows);
           }
           return;
         }
@@ -63,7 +76,7 @@ export function JobResult({
     return () => {
       stopped = true;
     };
-  }, [jobId, onLoaded]);
+  }, [jobId]);
 
   async function download(format: string) {
     setExporting(format);
@@ -143,7 +156,11 @@ export function JobResult({
             </button>
           </div>
           {renderSample ? (
-            renderSample(samples[index], index)
+            renderSample(samples[index], index, (next) =>
+              setSamples((current) =>
+                current.map((item) => (item.id === next.id ? next : item)),
+              ),
+            )
           ) : (
             <EditableSample
               key={samples[index].id}
@@ -157,8 +174,7 @@ export function JobResult({
           )}
           <div className="export-row">
             <strong>导出当前任务</strong>
-            {["jsonl", "alpaca", "openai-ft", "chatml", "huggingface", "csv"].map(
-              (format) => (
+            {exportFormats.map((format) => (
                 <button
                   className="button small"
                   disabled={Boolean(exporting)}
@@ -167,8 +183,8 @@ export function JobResult({
                 >
                   {exporting === format ? "处理中…" : format}
                 </button>
-              ),
-            )}
+              ))}
+            {resultActions?.(job)}
           </div>
         </>
       )}

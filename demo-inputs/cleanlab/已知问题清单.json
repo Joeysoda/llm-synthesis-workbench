@@ -1,0 +1,111 @@
+{
+  "schema_version": "1.0",
+  "dataset": "数据质量工单",
+  "is_fictional": true,
+  "row_count": 80,
+  "labels": [
+    "数据接入",
+    "权限与账号",
+    "质量规则",
+    "任务调度"
+  ],
+  "expected_issues": {
+    "wrong_label": [
+      {
+        "id": "T007",
+        "observed_label": "质量规则",
+        "expected_label": "数据接入"
+      },
+      {
+        "id": "T014",
+        "observed_label": "权限与账号",
+        "expected_label": "数据接入"
+      },
+      {
+        "id": "T024",
+        "observed_label": "任务调度",
+        "expected_label": "权限与账号"
+      },
+      {
+        "id": "T031",
+        "observed_label": "数据接入",
+        "expected_label": "权限与账号"
+      },
+      {
+        "id": "T041",
+        "observed_label": "任务调度",
+        "expected_label": "质量规则"
+      },
+      {
+        "id": "T048",
+        "observed_label": "权限与账号",
+        "expected_label": "质量规则"
+      },
+      {
+        "id": "T058",
+        "observed_label": "数据接入",
+        "expected_label": "任务调度"
+      },
+      {
+        "id": "T063",
+        "observed_label": "质量规则",
+        "expected_label": "任务调度"
+      }
+    ],
+    "duplicate_or_near_duplicate": [
+      {
+        "id": "T065",
+        "reference_id": "T001",
+        "kind": "exact"
+      },
+      {
+        "id": "T066",
+        "reference_id": "T017",
+        "kind": "exact"
+      },
+      {
+        "id": "T067",
+        "reference_id": "T033",
+        "kind": "near"
+      },
+      {
+        "id": "T068",
+        "reference_id": "T049",
+        "kind": "near"
+      },
+      {
+        "id": "T069",
+        "reference_id": "T005",
+        "kind": "near"
+      },
+      {
+        "id": "T070",
+        "reference_id": "T020",
+        "kind": "near"
+      }
+    ],
+    "outlier": [
+      {
+        "id": "T071",
+        "reason": "文本与数据平台工单领域无关"
+      },
+      {
+        "id": "T072",
+        "reason": "文本与数据平台工单领域无关"
+      },
+      {
+        "id": "T073",
+        "reason": "文本与数据平台工单领域无关"
+      },
+      {
+        "id": "T074",
+        "reason": "文本与数据平台工单领域无关"
+      }
+    ]
+  },
+  "acceptance": {
+    "duplicate_or_near_duplicate": "6 条植入样本全部检出",
+    "wrong_label": "8 条错标签中至少 6 条进入最可疑前 12 条",
+    "outlier": "4 条异常中至少 3 条进入异常分数最低前 8 条"
+  }
+}
