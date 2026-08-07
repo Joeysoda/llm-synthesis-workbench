@@ -29,6 +29,8 @@ class RunManager:
             "synthetic_generate_cot",
             "easy_dataset_generate",
             "easy_dataset_workflow",
+            "kaqg_build_graph",
+            "kaqg_generate_evaluate",
         }
 
     def start(self, run_id: str) -> None:

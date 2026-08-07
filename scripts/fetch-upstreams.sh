@@ -50,4 +50,9 @@ clone_at \
   https://github.com/MiniMax-AI/SynLogic.git \
   d8c527fd17edb739172619efb9b681805fc74b8d
 
-echo "三个上游项目已准备完成。"
+clone_at \
+  kaqg \
+  https://github.com/mfshiu/kaqg.git \
+  aa80de0082d5c217bbcb887ba386c2a85518c7d6
+
+echo "四个上游项目已准备完成；Cleanlab 由 Python 锁文件安装。"

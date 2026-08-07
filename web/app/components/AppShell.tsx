@@ -8,6 +8,8 @@ const navigation = [
   { href: "/synthetic", label: "Synthetic Data Kit" },
   { href: "/easy-dataset", label: "Easy Dataset" },
   { href: "/synlogic", label: "SynLogic" },
+  { href: "/kaqg", label: "KAQG" },
+  { href: "/cleanlab", label: "Cleanlab" },
   { href: "/tasks", label: "已完成任务" },
   { href: "/settings", label: "设置" },
 ];

@@ -6,8 +6,6 @@ FROM pnpm-base AS builder
 
 WORKDIR /app
 
-ARG TARGETPLATFORM
-
 RUN apk add --no-cache --virtual .build-deps \
     python3 \
     make \
@@ -21,6 +19,10 @@ RUN apk add --no-cache --virtual .build-deps \
     pixman-dev \
     pkgconfig
 
+# Easy Dataset 的 Web sidecar 不运行 Electron；跳过约 100 MB 的桌面运行时下载，
+# 避免本机 Docker 首次构建被无关的 Electron 网络请求中断。
+ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
+
 COPY upstream/easy-dataset/package.json \
      upstream/easy-dataset/pnpm-lock.yaml \
      upstream/easy-dataset/.npmrc ./
@@ -28,7 +30,7 @@ RUN pnpm install
 
 COPY upstream/easy-dataset ./
 
-RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
+RUN if [ "$(uname -m)" = "aarch64" ] || [ "$(uname -m)" = "arm64" ]; then \
         sed -i 's/binaryTargets = \[.*\]/binaryTargets = ["linux-musl-arm64-openssl-3.0.x"]/' prisma/schema.prisma; \
         PRISMA_CLI_BINARY_TARGETS="linux-musl-arm64-openssl-3.0.x" pnpm build; \
     else \

@@ -41,7 +41,7 @@ def test_health_project_upload_and_confirmation_gate():
     assert blocked.status_code == 409
 
 
-def test_tools_expose_eight_atomic_definitions():
+def test_tools_expose_registered_atomic_definitions():
     response = client.get("/api/v1/tools")
     assert response.status_code == 200
     names = {item["name"] for item in response.json()}
@@ -54,4 +54,7 @@ def test_tools_expose_eight_atomic_definitions():
         "easy_dataset_export",
         "synlogic_generate_arrow_maze",
         "synlogic_verify_arrow_maze",
+        "kaqg_build_graph",
+        "kaqg_generate_evaluate",
+        "cleanlab_audit_dataset",
     }

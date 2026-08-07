@@ -12,3 +12,4 @@ web/.next/
 web/dist/
 web/.wrangler/
 web/node_modules/
+.DS_Store

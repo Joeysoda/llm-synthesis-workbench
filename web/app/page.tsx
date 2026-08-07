@@ -28,6 +28,8 @@ const cards: {
   features: string[];
   href: string;
   serviceKey: string;
+  needsText: boolean;
+  needsVision: boolean;
 }[] = [
   {
     id: "synthetic-data-kit",
@@ -36,6 +38,8 @@ const cards: {
     features: ["普通 QA", "CoT 思维链", "摘要与 CoT 增强"],
     href: "/synthetic",
     serviceKey: "synthetic_cli",
+    needsText: true,
+    needsVision: true,
   },
   {
     id: "easy-dataset",
@@ -44,6 +48,8 @@ const cards: {
     features: ["文档问答", "数据蒸馏", "图片与评估数据"],
     href: "/easy-dataset",
     serviceKey: "easy_dataset",
+    needsText: true,
+    needsVision: true,
   },
   {
     id: "synlogic",
@@ -52,6 +58,28 @@ const cards: {
     features: ["迷宫生成", "确定性验证", "原始与统一 JSONL"],
     href: "/synlogic",
     serviceKey: "synlogic",
+    needsText: false,
+    needsVision: false,
+  },
+  {
+    id: "kaqg",
+    title: "KAQG",
+    description: "适合从 PDF 构建知识图谱，并生成带来源证据和难度评估的单选题。",
+    features: ["知识图谱", "难度可控单选题", "模型评估与证据"],
+    href: "/kaqg",
+    serviceKey: "kaqg_worker",
+    needsText: true,
+    needsVision: false,
+  },
+  {
+    id: "cleanlab",
+    title: "Cleanlab",
+    description: "适合在本机发现分类数据中的错标签、异常样本和重复内容。",
+    features: ["错标签检查", "异常检测", "近重复与人工审核"],
+    href: "/cleanlab",
+    serviceKey: "cleanlab",
+    needsText: false,
+    needsVision: false,
   },
 ];
 
@@ -67,6 +95,8 @@ const workflowLabels: Record<string, string> = {
   "image-qa": "图片问答",
   evaluation: "评估数据",
   "arrow-maze": "Arrow Maze",
+  "knowledge-graph-scq": "知识图谱单选题",
+  "text-classification-audit": "文本分类质量检查",
 };
 
 export default function OverviewPage() {
@@ -104,7 +134,7 @@ export default function OverviewPage() {
       <header className="page-header overview-header">
         <div>
           <h1>选择一个工具开始</h1>
-          <p>三个工具各自维护项目和历史记录。进入工具后即可上传、生成、审核和导出。</p>
+          <p>五个工具各自维护项目和历史记录。进入工具后即可上传、生成、审核和导出。</p>
         </div>
       </header>
       {error && <div className="notice error">{error}</div>}
@@ -142,25 +172,26 @@ export default function OverviewPage() {
                 <StatusLine
                   label="文本模型"
                   value={
-                    card.id === "synlogic"
+                    !card.needsText
                       ? "不需要"
                       : textReady
                         ? status?.text_model.model || "已验证"
                         : status?.text_model.message || "未验证"
                   }
-                  ok={card.id === "synlogic" || textReady}
+                  ok={!card.needsText || textReady}
+                  neutral={!card.needsText}
                 />
                 <StatusLine
                   label="视觉模型"
                   value={
-                    card.id === "synlogic"
+                    !card.needsVision
                       ? "不需要"
                       : visionReady
                         ? status?.vision_model.model || "已配置"
                         : "未配置"
                   }
-                  ok={card.id === "synlogic" || visionReady}
-                  neutral={card.id === "synlogic"}
+                  ok={!card.needsVision || visionReady}
+                  neutral={!card.needsVision}
                 />
               </div>
               <div className="recent-lines">

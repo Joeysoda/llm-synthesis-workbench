@@ -77,7 +77,7 @@ export default function SettingsPage() {
         <div className="settings-heading">
           <div>
             <h2>文本模型</h2>
-            <p>用于 Synthetic Data Kit 和 Easy Dataset 的文本生成与质量评估。</p>
+            <p>用于 Synthetic Data Kit、Easy Dataset 和 KAQG 的文本生成与质量评估。</p>
           </div>
           <StateTag state={status?.text_model.credential_state || "unknown"} />
         </div>
@@ -126,12 +126,28 @@ export default function SettingsPage() {
           <ServiceRow label="Easy Dataset sidecar" item={status?.services.easy_dataset} />
           <ServiceRow label="Synthetic CLI" item={status?.services.synthetic_cli} />
           <ServiceRow label="SynLogic 仓库" item={status?.services.synlogic} />
+          <ServiceRow label="KAQG worker" item={status?.services.kaqg_worker} />
+          <ServiceRow label="Cleanlab" item={status?.services.cleanlab} />
         </div>
         <ProbeRow
           profile="easy-dataset"
           label="测试 Easy Dataset"
           busy={probing === "easy-dataset"}
           result={results["easy-dataset"]}
+          onProbe={probe}
+        />
+        <ProbeRow
+          profile="kaqg"
+          label="测试 KAQG"
+          busy={probing === "kaqg"}
+          result={results.kaqg}
+          onProbe={probe}
+        />
+        <ProbeRow
+          profile="cleanlab"
+          label="测试 Cleanlab"
+          busy={probing === "cleanlab"}
+          result={results.cleanlab}
           onProbe={probe}
         />
       </section>
