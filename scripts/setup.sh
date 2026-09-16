@@ -19,4 +19,4 @@ uv pip install --python "$ROOT/.venv/bin/python" -e "$ROOT/upstream/synthetic-da
 npm --prefix "$ROOT/web" install
 
 echo "本机依赖准备完成。"
-echo "LLM 验收前请撤销旧密钥，设置新的 DEEPSEEK_API_KEY 和 LLM_CREDENTIAL_ROTATED=true。"
+echo "LLM 验收前请撤销旧密钥，设置新的 MINIMAX_API_KEY 和 LLM_CREDENTIAL_ROTATED=true。"

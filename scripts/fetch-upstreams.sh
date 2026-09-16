@@ -55,4 +55,9 @@ clone_at \
   https://github.com/mfshiu/kaqg.git \
   aa80de0082d5c217bbcb887ba386c2a85518c7d6
 
-echo "四个上游项目已准备完成；Cleanlab 由 Python 锁文件安装。"
+clone_at \
+  synthea \
+  https://github.com/synthetichealth/synthea.git \
+  7e08387c68a7f0e21d13076609a159fd473fc902
+
+echo "五个上游项目已准备完成；Cleanlab 由 Python 锁文件安装。"

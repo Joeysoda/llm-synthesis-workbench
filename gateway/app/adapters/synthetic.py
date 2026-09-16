@@ -87,7 +87,7 @@ def write_config(
     data["llm"]["provider"] = "api-endpoint"
     data["api-endpoint"].update(
         {
-            "api_base": settings.llm_base_url,
+            "api_base": settings.llm_proxy_base_url,
             "api_key": "",
             "model": model,
             "max_retries": 3,
@@ -221,7 +221,7 @@ def build_synthetic_tools(database: Database, settings: Settings) -> list:
 
     def environment() -> dict[str, str]:
         return {
-            "API_ENDPOINT_KEY": settings.deepseek_api_key,
+            "API_ENDPOINT_KEY": "internal-proxy",
             "PYTHONUNBUFFERED": "1",
         }
 
@@ -293,7 +293,7 @@ def build_synthetic_tools(database: Database, settings: Settings) -> list:
                 error=ToolError(
                     code="llm_credential_not_ready",
                     message=(
-                        "请撤销旧密钥，设置新的 DEEPSEEK_API_KEY，"
+                        "请撤销旧密钥，设置新的 MINIMAX_API_KEY，"
                         "并显式设置 LLM_CREDENTIAL_ROTATED=true"
                     ),
                 ),
@@ -349,7 +349,7 @@ def build_synthetic_tools(database: Database, settings: Settings) -> list:
                 "--provider",
                 "api-endpoint",
                 "--api-base",
-                settings.llm_base_url,
+                settings.llm_proxy_base_url,
             ],
             cwd=ctx.run_dir,
             ctx=ctx,

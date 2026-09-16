@@ -22,11 +22,14 @@ case "$MODE" in
   kaqg)
     docker compose build kaqg-worker
     ;;
+  medical)
+    docker compose build synthea-worker gateway web
+    ;;
   all)
     docker compose build
     ;;
   *)
-    echo "用法：$0 [core|easy|kaqg|all]" >&2
+    echo "用法：$0 [core|easy|kaqg|medical|all]" >&2
     exit 2
     ;;
 esac

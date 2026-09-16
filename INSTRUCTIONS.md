@@ -34,11 +34,11 @@ cp .env.example .env
 在 `.env` 中填写本机密钥，并确认以下配置：
 
 ```dotenv
-DEEPSEEK_API_KEY=填写本机密钥
+MINIMAX_API_KEY=填写本机 MiniMax Key
 LLM_CREDENTIAL_ROTATED=true
-LLM_BASE_URL=https://api.deepseek.com
-LLM_MODEL=deepseek-v4-pro
-LLM_JUDGE_MODEL=deepseek-v4-pro
+LLM_BASE_URL=https://api.minimaxi.com/v1
+LLM_MODEL=MiniMax-M3
+LLM_JUDGE_MODEL=MiniMax-M3
 ```
 
 `.env` 已被 Git 忽略。任何检查命令都不得输出密钥内容。
@@ -104,7 +104,25 @@ KAQG 的 Neo4j、Mosquitto 和 worker 只在 Docker 内部网络开放。使用�
 ./scripts/docker-stop.sh kaqg
 ```
 
-## 六、五个工具全部启动
+## 六、按需启动医疗领域包
+
+医疗领域包会启动内部 Synthea worker。它只生成完全虚构的患者记录，不接收真实病例；完成后会输出 FHIR、CSV、时间线、质量报告和数据卡。
+
+```bash
+./scripts/docker-build.sh medical  # 首次或镜像更新后执行一次
+./scripts/docker-up.sh medical
+./scripts/health.sh medical
+```
+
+访问：<http://127.0.0.1:5173/medical>
+
+使用结束后可单独停止该 worker：
+
+```bash
+./scripts/docker-stop.sh medical
+```
+
+## 七、五个工具全部启动
 
 只有完整演示或联合验收时使用：
 
@@ -115,7 +133,7 @@ KAQG 的 Neo4j、Mosquitto 和 worker 只在 Docker 内部网络开放。使用�
 
 不要把 `all` 作为日常启动方式。
 
-## 七、模型连接验证
+## 八、模型连接验证
 
 服务启动后，可在“设置”页面点击“测试连接”。也可以执行不包含密钥的最小探测：
 
@@ -128,7 +146,7 @@ curl -fsS -X POST \
 
 只有返回 `verified` 才能说明文本模型真实可用。环境变量存在、容器健康或端口可访问，都不能替代模型探测。
 
-## 八、停止与清理
+## 九、停止与清理
 
 停止整个项目，但保留容器和构建缓存：
 
@@ -150,7 +168,7 @@ docker compose ps
 
 该命令不会删除 `runtime/`，但下次启动需要重新创建容器。
 
-## 九、什么时候重新构建
+## 十、什么时候重新构建
 
 仅在以下情况重新构建：
 
@@ -165,6 +183,7 @@ docker compose ps
 ./scripts/docker-build.sh core
 ./scripts/docker-build.sh easy
 ./scripts/docker-build.sh kaqg
+./scripts/docker-build.sh medical
 ./scripts/docker-build.sh all
 ```
 
@@ -176,14 +195,14 @@ Gateway 在本机 Compose 中只读挂载 `gateway/` 源码。仅修改 Gateway 
 docker compose up -d --no-deps --no-build --force-recreate gateway web
 ```
 
-## 十、CPU 占用判断
+## 十一、CPU 占用判断
 
 - 首次构建或生成数据时短暂升高：正常。
 - 服务空闲 3～5 分钟后仍持续占满 CPU：不正常，应先检查 `docker stats --no-stream`。
-- 日常只需要三个轻量工具时使用 `core`，不要启动 Easy Dataset、Neo4j 和 KAQG worker。
+- 日常只需要三个轻量工具时使用 `core`，不要启动 Easy Dataset、Neo4j、KAQG worker 或 Synthea worker。
 - 不要因为本项目出现高占用而直接停止其他项目容器；先确认容器名称和端口归属。
 
-## 十一、常见故障
+## 十二、常见故障
 
 页面拒绝连接：
 
@@ -211,6 +230,13 @@ KAQG 不可达：
 ```bash
 ./scripts/docker-up.sh kaqg
 ./scripts/health.sh kaqg
+```
+
+医疗领域包不可达：
+
+```bash
+./scripts/docker-up.sh medical
+./scripts/health.sh medical
 ```
 
 运行记录、SQLite、上传文件、日志和导出结果都在 `runtime/`。排障时不得删除该目录。

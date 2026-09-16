@@ -331,7 +331,7 @@ def build_easy_dataset_tools(database: Database, settings: Settings) -> list:
                 error=ToolError(
                     code="llm_credential_not_ready",
                     message=(
-                        "请撤销旧密钥，设置新的 DEEPSEEK_API_KEY，"
+                        "请撤销旧密钥，设置新的 MINIMAX_API_KEY，"
                         "并显式设置 LLM_CREDENTIAL_ROTATED=true"
                     ),
                 ),
@@ -517,7 +517,7 @@ def build_easy_dataset_tools(database: Database, settings: Settings) -> list:
                 error=ToolError(
                     code="llm_credential_not_ready",
                     message=(
-                        "请设置新的 DEEPSEEK_API_KEY，"
+                        "请设置新的 MINIMAX_API_KEY，"
                         "并显式设置 LLM_CREDENTIAL_ROTATED=true"
                     ),
                 ),

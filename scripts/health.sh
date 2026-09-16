@@ -26,6 +26,17 @@ probe() {
   fi
 }
 
+synthea_probe() {
+  if response=$(curl --silent --fail --max-time 5 "http://127.0.0.1:$GATEWAY_PORT/api/v3/integrations/status") \
+    && printf '%s' "$response" | python3 -c \
+      'import json, sys; sys.exit(0 if json.load(sys.stdin)["services"]["synthea_worker"]["status"] == "reachable" else 1)'; then
+    echo "✓ Synthea worker"
+  else
+    echo "✗ Synthea worker"
+    return 1
+  fi
+}
+
 status=0
 MODE=${1:-core}
 GATEWAY_PORT=${GATEWAY_PORT:-18000}
@@ -43,13 +54,17 @@ case "$MODE" in
     probe "KAQG worker / Neo4j / Mosquitto" \
       "http://127.0.0.1:$GATEWAY_PORT/api/v2/integrations/kaqg/probe" || status=1
     ;;
+  medical)
+    synthea_probe || status=1
+    ;;
   all)
     check "Easy Dataset" "http://127.0.0.1:1717/api/projects" || status=1
     probe "KAQG worker / Neo4j / Mosquitto" \
       "http://127.0.0.1:$GATEWAY_PORT/api/v2/integrations/kaqg/probe" || status=1
+    synthea_probe || status=1
     ;;
   *)
-    echo "用法：$0 [core|easy|kaqg|all]" >&2
+    echo "用法：$0 [core|easy|kaqg|medical|all]" >&2
     exit 2
     ;;
 esac

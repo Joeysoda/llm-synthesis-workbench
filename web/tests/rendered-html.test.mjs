@@ -34,8 +34,8 @@ test("server-renders the Chinese local workbench shell", async () => {
   assert.doesNotMatch(html, /Your site is taking shape|react-loading-skeleton/);
 });
 
-test("client implements eight routes and plain desktop layout", async () => {
-  const [page, css, layout, packageJson, synthetic, easy, synlogic, kaqg, cleanlab, tasks, settings] = await Promise.all([
+test("client implements module navigation and plain desktop layout", async () => {
+  const [page, css, layout, packageJson, synthetic, easy, synlogic, kaqg, cleanlab, tasks, settings, tools, pipelines, medical, datasets] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -47,6 +47,10 @@ test("client implements eight routes and plain desktop layout", async () => {
     readFile(new URL("../app/cleanlab/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/tasks/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/settings/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/tools/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/pipelines/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/medical/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/datasets/page.tsx", import.meta.url), "utf8"),
   ]);
   assert.match(page, /选择一个工具开始/);
   assert.match(synthetic, /普通 QA/);
@@ -66,7 +70,14 @@ test("client implements eight routes and plain desktop layout", async () => {
   assert.match(cleanlab, /cleanlab-audit/);
   assert.match(tasks, /查看需要处理的任务/);
   assert.match(settings, /LLM_CREDENTIAL_ROTATED=true/);
+  assert.match(tools, /工具中心/);
+  assert.match(pipelines, /ReactFlow/);
+  assert.match(pipelines, /数据流程/);
+  assert.match(medical, /Synthea/);
+  assert.match(medical, /FHIR/);
+  assert.match(datasets, /数据资产/);
   assert.match(css, /\.sidebar/);
+  assert.match(css, /workflow-layout/);
   assert.doesNotMatch(css, /linear-gradient|radial-gradient|timeline/);
   assert.match(layout, /lang="zh-CN"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);

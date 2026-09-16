@@ -18,8 +18,11 @@ class Settings:
     easy_dataset_repo: Path
     kaqg_repo: Path
     kaqg_commit: str
+    synthea_repo: Path
+    synthea_commit: str
     easy_dataset_base_url: str
     kaqg_worker_base_url: str
+    synthea_worker_base_url: str
     llm_base_url: str
     llm_model: str
     llm_judge_model: str
@@ -40,12 +43,12 @@ class Settings:
         }
 
     @property
-    def deepseek_key_present(self) -> bool:
-        return bool(os.environ.get("DEEPSEEK_API_KEY"))
+    def llm_key_present(self) -> bool:
+        return bool(os.environ.get("MINIMAX_API_KEY"))
 
     @property
     def llm_ready(self) -> bool:
-        return self.deepseek_key_present and self.llm_credentials_rotated
+        return self.llm_key_present and self.llm_credentials_rotated
 
     @property
     def gateway_base_url(self) -> str:
@@ -56,8 +59,12 @@ class Settings:
         return f"http://{self.gateway_public_host}:{self.gateway_port}"
 
     @property
-    def deepseek_api_key(self) -> str:
-        return os.environ.get("DEEPSEEK_API_KEY", "")
+    def llm_proxy_base_url(self) -> str:
+        return f"{self.gateway_base_url}/internal/llm/v1"
+
+    @property
+    def llm_api_key(self) -> str:
+        return os.environ.get("MINIMAX_API_KEY", "")
 
     @property
     def vision_key_present(self) -> bool:
@@ -152,15 +159,27 @@ def load_settings() -> Settings:
         kaqg_commit=os.environ.get(
             "KAQG_COMMIT", "aa80de0082d5c217bbcb887ba386c2a85518c7d6"
         ),
+        synthea_repo=Path(
+            os.environ.get(
+                "SYNTHEA_REPO",
+                str(research_root / "synthea" if research_root == bundled_upstream else research_root / "repos" / "synthea"),
+            )
+        ),
+        synthea_commit=os.environ.get(
+            "SYNTHEA_COMMIT", "7e08387c68a7f0e21d13076609a159fd473fc902"
+        ),
         easy_dataset_base_url=os.environ.get(
             "EASY_DATASET_BASE_URL", "http://127.0.0.1:1717"
         ).rstrip("/"),
         kaqg_worker_base_url=os.environ.get(
             "KAQG_WORKER_BASE_URL", "http://127.0.0.1:18100"
         ).rstrip("/"),
-        llm_base_url=os.environ.get("LLM_BASE_URL", "https://api.deepseek.com").rstrip("/"),
-        llm_model=os.environ.get("LLM_MODEL", "deepseek-v4-pro"),
-        llm_judge_model=os.environ.get("LLM_JUDGE_MODEL", "deepseek-v4-pro"),
+        synthea_worker_base_url=os.environ.get(
+            "SYNTHEA_WORKER_BASE_URL", "http://127.0.0.1:18200"
+        ).rstrip("/"),
+        llm_base_url=os.environ.get("LLM_BASE_URL", "https://api.minimaxi.com/v1").rstrip("/"),
+        llm_model=os.environ.get("LLM_MODEL", "MiniMax-M3"),
+        llm_judge_model=os.environ.get("LLM_JUDGE_MODEL", "MiniMax-M3"),
         vision_base_url=os.environ.get("VISION_BASE_URL", "").rstrip("/"),
         vision_model=os.environ.get("VISION_MODEL", ""),
         gateway_host=os.environ.get("GATEWAY_HOST", "127.0.0.1"),

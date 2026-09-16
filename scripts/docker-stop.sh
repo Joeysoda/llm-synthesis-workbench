@@ -15,11 +15,14 @@ case "$MODE" in
   kaqg)
     docker compose stop kaqg-worker neo4j mosquitto
     ;;
+  medical)
+    docker compose stop synthea-worker
+    ;;
   all)
     docker compose stop
     ;;
   *)
-    echo "用法：$0 [core|easy|kaqg|all]" >&2
+    echo "用法：$0 [core|easy|kaqg|medical|all]" >&2
     exit 2
     ;;
 esac

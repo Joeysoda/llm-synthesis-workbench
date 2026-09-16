@@ -4,13 +4,24 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const navigation = [
-  { href: "/", label: "总览" },
+  { href: "/", label: "首页" },
+];
+
+const toolNavigation = [
   { href: "/synthetic", label: "Synthetic Data Kit" },
   { href: "/easy-dataset", label: "Easy Dataset" },
   { href: "/synlogic", label: "SynLogic" },
   { href: "/kaqg", label: "KAQG" },
   { href: "/cleanlab", label: "Cleanlab" },
-  { href: "/tasks", label: "已完成任务" },
+];
+
+const medicalNavigation = [
+  { href: "/medical", label: "医疗数据生成" },
+  { href: "/datasets", label: "医疗数据资产" },
+];
+
+const systemNavigation = [
+  { href: "/tasks", label: "任务记录" },
   { href: "/settings", label: "设置" },
 ];
 
@@ -35,6 +46,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 href={item.href}
                 key={item.href}
               >
+                {item.label}
+              </Link>
+            );
+          })}
+          <div className="nav-group-label">工具中心</div>
+          {toolNavigation.map((item) => {
+            const active = pathname.startsWith(item.href);
+            return (
+              <Link className={active ? "nav-link nav-child active" : "nav-link nav-child"} href={item.href} key={item.href}>
+                {item.label}
+              </Link>
+            );
+          })}
+          <div className="nav-group-label">医疗数据</div>
+          {medicalNavigation.map((item) => {
+            const active = pathname.startsWith(item.href);
+            return (
+              <Link className={active ? "nav-link active" : "nav-link"} href={item.href} key={item.href}>
+                {item.label}
+              </Link>
+            );
+          })}
+          <div className="nav-group-label">运行与系统</div>
+          {systemNavigation.map((item) => {
+            const active = pathname.startsWith(item.href);
+            return (
+              <Link className={active ? "nav-link active" : "nav-link"} href={item.href} key={item.href}>
                 {item.label}
               </Link>
             );

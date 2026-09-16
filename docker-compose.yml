@@ -16,12 +16,15 @@ services:
       KAQG_REPO: /opt/upstream/kaqg
       KAQG_COMMIT: ${KAQG_COMMIT:-aa80de0082d5c217bbcb887ba386c2a85518c7d6}
       KAQG_WORKER_BASE_URL: http://kaqg-worker:18100
+      SYNTHEA_WORKER_BASE_URL: http://synthea-worker:18200
+      SYNTHEA_REPO: /opt/upstream/synthea
+      SYNTHEA_COMMIT: ${SYNTHEA_COMMIT:-7e08387c68a7f0e21d13076609a159fd473fc902}
       EASY_DATASET_REPO: /opt/upstream/easy-dataset
-      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
-      LLM_MODEL: ${LLM_MODEL:-deepseek-v4-pro}
-      LLM_JUDGE_MODEL: ${LLM_JUDGE_MODEL:-deepseek-v4-pro}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.minimaxi.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-MiniMax-M3}
+      LLM_JUDGE_MODEL: ${LLM_JUDGE_MODEL:-MiniMax-M3}
       LLM_CREDENTIAL_ROTATED: ${LLM_CREDENTIAL_ROTATED:-false}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
       VISION_BASE_URL: ${VISION_BASE_URL:-}
       VISION_MODEL: ${VISION_MODEL:-}
       VISION_API_KEY: ${VISION_API_KEY:-}
@@ -112,6 +115,19 @@ services:
       timeout: 5s
       retries: 12
       start_period: 15s
+
+  synthea-worker:
+    build:
+      context: .
+      dockerfile: docker/synthea-worker.Dockerfile
+    volumes:
+      - ./runtime:/app/runtime
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:18200/health', timeout=3)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
 
   web:
     build:

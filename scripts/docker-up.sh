@@ -31,11 +31,14 @@ case "$MODE" in
     start neo4j mosquitto kaqg-worker
     start --no-deps gateway web
     ;;
+  medical)
+    start --no-deps synthea-worker gateway web
+    ;;
   all)
     start
     ;;
   *)
-    echo "用法：$0 [core|easy|kaqg|all]" >&2
+    echo "用法：$0 [core|easy|kaqg|medical|all]" >&2
     exit 2
     ;;
 esac
@@ -50,5 +53,8 @@ case "$MODE" in
 esac
 case "$MODE" in
   kaqg|all) echo "KAQG worker、Neo4j、Mosquitto：仅 Docker 内部网络可访问" ;;
+esac
+case "$MODE" in
+  medical|all) echo "Synthea worker：仅 Docker 内部网络可访问" ;;
 esac
 echo "启动模式：${MODE}（本次未执行镜像构建）"

@@ -1,0 +1,21 @@
+{
+  "synthetic_only": true,
+  "minimum_population": 50,
+  "required_outputs": [
+    "patient-timelines.jsonl",
+    "medical-task-samples.jsonl",
+    "quality-report.json",
+    "data-card.md",
+    "dataset-manifest.json"
+  ],
+  "quality_rules": [
+    "FHIR JSON 可解析",
+    "本地资源引用可解析",
+    "至少 20 条带资源证据的任务样本",
+    "联系方式格式仅作为 Synthea 合成值记录，不作为真实 PII 判断"
+  ],
+  "limitations": [
+    "记录完全由 Synthea 生成，不代表真实人群",
+    "不用于诊断、治疗或临床决策"
+  ]
+}

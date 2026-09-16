@@ -327,7 +327,7 @@ def run(payload: RunRequest) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail="文件路径不在共享 runtime 中")
     run_dir.mkdir(parents=True, exist_ok=True)
     if not payload.llm_api_key:
-        raise HTTPException(status_code=503, detail="DeepSeek 密钥未配置")
+        raise HTTPException(status_code=503, detail="LLM 代理凭据未配置")
     client = OpenAI(api_key=payload.llm_api_key, base_url=payload.llm_base_url)
     driver = GraphDatabase.driver(NEO4J_URI, auth=None)
     try:

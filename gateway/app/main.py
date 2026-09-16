@@ -24,6 +24,8 @@ from .adapters.synthetic import build_synthetic_tools, cot_enhance_records
 from .config import settings
 from .contracts import RiskLevel, SafetyPolicy
 from .database import Database, now_iso
+from .medical import MedicalRunManager, medical_output_catalog, resolve_output_policy
+from .pipeline import OPERATORS, templates, validate_pipeline
 from .registry import ToolRegistry
 from .runner import RunManager
 from .schemas import (
@@ -42,6 +44,11 @@ from .schemas import (
     SyntheticJobCreate,
     ToolProjectCreate,
     ToolProjectPatch,
+    MedicalGenerateRequest,
+    MedicalGenerationCreate,
+    PipelineCreate,
+    PipelinePatch,
+    PipelineRunCreate,
 )
 from .security import (
     ensure_within,
@@ -51,12 +58,17 @@ from .security import (
 
 app = FastAPI(
     title="LLM 合成数据工作台网关",
-    version="0.2.0",
+    version="0.3.0",
     description="本机 Agent OS 兼容网关，只绑定 127.0.0.1。",
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+    ],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -70,9 +82,10 @@ registry.register_many(build_synlogic_tools(database, settings))
 registry.register_many(build_kaqg_tools(database, settings))
 registry.register_many(build_cleanlab_tools(database, settings))
 manager = RunManager(database, registry, settings)
+medical_manager = MedicalRunManager(database, settings)
 
 TOOL_IDS = {
-    "synthetic-data-kit", "easy-dataset", "synlogic", "kaqg", "cleanlab", "legacy"
+    "synthetic-data-kit", "easy-dataset", "synlogic", "kaqg", "cleanlab", "medical", "legacy"
 }
 TOOL_NAMES = {
     "synthetic-data-kit": "Synthetic Data Kit",
@@ -80,6 +93,7 @@ TOOL_NAMES = {
     "synlogic": "SynLogic",
     "kaqg": "KAQG",
     "cleanlab": "Cleanlab",
+    "medical": "医疗数据",
     "legacy": "历史实验",
 }
 PROBE_RESULTS: dict[str, dict[str, Any]] = {}
@@ -534,6 +548,16 @@ async def llm_proxy(request: Request) -> StreamingResponse:
             detail="LLM 密钥未完成轮换确认，拒绝外部模型调用",
         )
     body = await request.body()
+    try:
+        payload = json.loads(body or b"{}")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="LLM 请求必须是 JSON") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="LLM 请求体必须是对象")
+    payload["model"] = settings.llm_model
+    payload["thinking"] = {"type": "adaptive"}
+    payload["reasoning_split"] = True
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     client = httpx.AsyncClient(timeout=httpx.Timeout(900, connect=15))
     upstream = await client.send(
         client.build_request(
@@ -542,7 +566,7 @@ async def llm_proxy(request: Request) -> StreamingResponse:
             content=body,
             headers={
                 "content-type": "application/json",
-                "authorization": f"Bearer {settings.deepseek_api_key}",
+                "authorization": f"Bearer {settings.llm_api_key}",
             },
         ),
         stream=True,
@@ -1055,7 +1079,7 @@ async def integration_snapshot() -> dict[str, Any]:
         else "ready-to-probe"
         if settings.llm_ready
         else "rotation-unconfirmed"
-        if settings.deepseek_key_present
+        if settings.llm_key_present
         else "not-configured"
     )
     return {
@@ -1071,7 +1095,7 @@ async def integration_snapshot() -> dict[str, Any]:
                 else "新密钥已注入，等待最小请求验证"
                 if credential_state == "ready-to-probe"
                 else "已检测到密钥，但尚未确认轮换"
-                if settings.deepseek_key_present
+                if settings.llm_key_present
                 else "未配置文本模型密钥"
             ),
         },
@@ -1139,25 +1163,28 @@ def classify_probe_error(status_code: int | None, message: str) -> tuple[str, st
 @app.post("/api/v2/integrations/{profile}/probe")
 async def v2_probe(profile: str, payload: ProbeRequest) -> dict[str, Any]:
     if profile == "text":
-        if not settings.deepseek_key_present:
-            return {"ok": False, "code": "not-configured", "message": "未配置 DEEPSEEK_API_KEY"}
+        if not settings.llm_key_present:
+            return {"ok": False, "code": "not-configured", "message": "未配置 MINIMAX_API_KEY"}
         if not settings.llm_credentials_rotated:
             return {
                 "ok": False,
                 "code": "rotation-unconfirmed",
                 "message": "检测到密钥，但 LLM_CREDENTIAL_ROTATED 尚未设为 true；未发送外部请求",
             }
-        model = payload.model or settings.llm_model
+        # The gateway owns the cloud model selection; callers cannot override it.
+        model = settings.llm_model
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(30, connect=10)) as client:
                 response = await client.post(
                     f"{settings.llm_base_url}/chat/completions",
-                    headers={"authorization": f"Bearer {settings.deepseek_api_key}"},
+                    headers={"authorization": f"Bearer {settings.llm_api_key}"},
                     json={
-                        "model": model,
+                        "model": settings.llm_model,
                         "messages": [{"role": "user", "content": "只回复 OK"}],
                         "max_tokens": 8,
                         "temperature": 0,
+                        "thinking": {"type": "adaptive"},
+                        "reasoning_split": True,
                     },
                 )
             if response.is_success:
@@ -1215,3 +1242,325 @@ async def v2_probe(profile: str, payload: ProbeRequest) -> dict[str, Any]:
             "message": f"Cleanlab {importlib.metadata.version('cleanlab')} 可用",
         }
     raise HTTPException(status_code=404, detail="未知的集成配置")
+
+
+# ------------------------ v3 modules and data assets ---------------------
+
+
+def require_pipeline(pipeline_id: str) -> dict[str, Any]:
+    pipeline = database.get_pipeline(pipeline_id)
+    if not pipeline:
+        raise HTTPException(status_code=404, detail="流程不存在")
+    return pipeline
+
+
+def require_pipeline_run(pipeline_run_id: str) -> dict[str, Any]:
+    pipeline_run = database.get_pipeline_run(pipeline_run_id)
+    if not pipeline_run:
+        raise HTTPException(status_code=404, detail="流程运行不存在")
+    return pipeline_run
+
+
+async def synthea_status() -> dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            response = await client.get(f"{settings.synthea_worker_base_url}/health")
+        if response.is_success:
+            return {"status": "reachable", "message": "Synthea worker 可用", "detail": response.json()}
+        return {"status": "unreachable", "message": f"HTTP {response.status_code}"}
+    except httpx.RequestError as exc:
+        return {"status": "unreachable", "message": type(exc).__name__}
+
+
+@app.get("/api/v3/modules")
+async def v3_modules() -> list[dict[str, Any]]:
+    return [
+        {"id": "toolbox", "name": "工具中心", "summary": "直接使用五个已集成工具。", "path": "/"},
+        {"id": "domain", "name": "领域数据", "summary": "领域规则与专项验收；第一版提供医疗合成数据。", "path": "/medical"},
+        {"id": "assets", "name": "数据资产", "summary": "查看不可覆盖的数据集版本、质量报告与血缘。", "path": "/datasets"},
+    ]
+
+
+@app.get("/api/v3/operators")
+async def v3_operators() -> list[dict[str, Any]]:
+    return OPERATORS
+
+
+@app.get("/api/v3/pipelines/templates")
+async def v3_pipeline_templates() -> list[dict[str, Any]]:
+    return templates()
+
+
+@app.get("/api/v3/pipelines")
+async def v3_list_pipelines() -> list[dict[str, Any]]:
+    return database.list_pipelines()
+
+
+@app.post("/api/v3/pipelines", status_code=201)
+async def v3_create_pipeline(payload: PipelineCreate) -> dict[str, Any]:
+    value = payload.model_dump()
+    if value["project_id"]:
+        project = require_project(value["project_id"])
+        if value["domain"] == "medical" and project["tool_id"] != "medical":
+            raise HTTPException(status_code=409, detail="医疗流程只能关联医疗数据项目")
+    verdict = validate_pipeline(value["nodes"], value["edges"])
+    if not verdict["valid"]:
+        raise HTTPException(status_code=422, detail=verdict)
+    return database.create_pipeline(value)
+
+
+@app.patch("/api/v3/pipelines/{pipeline_id}")
+async def v3_update_pipeline(pipeline_id: str, payload: PipelinePatch) -> dict[str, Any]:
+    pipeline = require_pipeline(pipeline_id)
+    value = payload.model_dump(exclude_none=True)
+    nodes = value.get("nodes", pipeline["nodes"])
+    edges = value.get("edges", pipeline["edges"])
+    verdict = validate_pipeline(nodes, edges)
+    if not verdict["valid"]:
+        raise HTTPException(status_code=422, detail=verdict)
+    return database.update_pipeline(pipeline_id, value) or {}
+
+
+@app.post("/api/v3/pipelines/{pipeline_id}/validate")
+async def v3_validate_pipeline(pipeline_id: str) -> dict[str, Any]:
+    pipeline = require_pipeline(pipeline_id)
+    return validate_pipeline(pipeline["nodes"], pipeline["edges"])
+
+
+@app.post("/api/v3/pipelines/{pipeline_id}/runs", status_code=202)
+async def v3_start_pipeline(pipeline_id: str, payload: PipelineRunCreate) -> dict[str, Any]:
+    pipeline = require_pipeline(pipeline_id)
+    if not payload.confirmed:
+        raise HTTPException(status_code=409, detail="请先确认本次流程参数")
+    verdict = validate_pipeline(pipeline["nodes"], pipeline["edges"])
+    if not verdict["valid"]:
+        raise HTTPException(status_code=422, detail=verdict)
+    if pipeline["domain"] != "medical":
+        raise HTTPException(status_code=409, detail="当前通用模板用于保存和校验编排；请在工具中心执行实际生成任务后再登记到流程。医疗模板已支持本机端到端运行。")
+    project_id = payload.project_id or pipeline.get("project_id")
+    if not project_id:
+        raise HTTPException(status_code=422, detail="医疗流程需要选择医疗项目")
+    require_tool_project(project_id, "medical")
+    return medical_manager.start(pipeline, project_id, payload.parameters)
+
+
+@app.get("/api/v3/pipeline-runs/{pipeline_run_id}")
+async def v3_get_pipeline_run(pipeline_run_id: str) -> dict[str, Any]:
+    return require_pipeline_run(pipeline_run_id)
+
+
+@app.get("/api/v3/pipeline-runs/{pipeline_run_id}/events")
+async def v3_pipeline_events(pipeline_run_id: str, request: Request) -> StreamingResponse:
+    require_pipeline_run(pipeline_run_id)
+
+    async def stream():
+        cursor = 0
+        while True:
+            if await request.is_disconnected():
+                break
+            events = database.list_pipeline_events(pipeline_run_id, cursor)
+            for event in events:
+                cursor = int(event["id"])
+                yield f"id: {cursor}\nevent: {event['event_type']}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+            state = database.get_pipeline_run(pipeline_run_id)
+            if state and state["status"] in {"succeeded", "needs_review", "failed", "cancelled"} and not events:
+                yield f"event: end\ndata: {json.dumps({'status': state['status']})}\n\n"
+                break
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.get("/api/v3/domain-packs")
+async def v3_domain_packs() -> list[dict[str, Any]]:
+    synthea = await synthea_status()
+    return [
+        {"id": "medical", "name": "医疗高保真数据", "status": synthea["status"], "generator": "Synthea", "formats": ["FHIR R4", "Bulk FHIR NDJSON", "CSV", "时间线 JSONL"], "message": synthea["message"]},
+        {"id": "finance", "name": "金融数据", "status": "planned", "message": "后续评估 SDV 的许可证与种子数据边界。"},
+        {"id": "embodied", "name": "具身智能数据", "status": "planned", "message": "后续优先评估 LeRobot 的导入、格式检查与质量分析。"},
+    ]
+
+
+@app.post("/api/v3/medical/projects/{project_id}/generate", status_code=202)
+async def v3_generate_medical(project_id: str, payload: MedicalGenerateRequest) -> dict[str, Any]:
+    require_tool_project(project_id, "medical")
+    if payload.min_age > payload.max_age:
+        raise HTTPException(status_code=422, detail="最小年龄不能大于最大年龄")
+    if not payload.confirmed:
+        raise HTTPException(status_code=409, detail="请先确认虚构患者生成参数")
+    status = await synthea_status()
+    if status["status"] != "reachable":
+        raise HTTPException(status_code=503, detail=f"Synthea 服务未就绪：{status['message']}")
+    medical_template = next(item for item in templates() if item["id"] == "medical-synthea")
+    pipeline = database.create_pipeline({
+        "name": f"医疗合成流程 {now_iso()[:10]}", "description": "由医疗领域页面创建的固定闭环。",
+        "domain": "medical", "project_id": project_id, "nodes": medical_template["nodes"], "edges": medical_template["edges"],
+    })
+    try:
+        resolve_output_policy(payload.output_policy)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return medical_manager.start(pipeline, project_id, payload.model_dump(exclude={"confirmed"}))
+
+
+@app.get("/api/v3/medical/output-catalog")
+async def v3_medical_output_catalog() -> list[dict[str, Any]]:
+    return medical_output_catalog()
+
+
+@app.post("/api/v3/medical/generations", status_code=202)
+async def v3_create_medical_generation(payload: MedicalGenerationCreate) -> dict[str, Any]:
+    if payload.min_age > payload.max_age:
+        raise HTTPException(status_code=422, detail="最小年龄不能大于最大年龄")
+    if not payload.confirmed:
+        raise HTTPException(status_code=409, detail="请先确认虚构患者生成参数")
+    try:
+        resolved_policy, reasons = resolve_output_policy(payload.output_policy)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    status = await synthea_status()
+    if status["status"] != "reachable":
+        raise HTTPException(status_code=503, detail=f"Synthea 服务未就绪：{status['message']}")
+    try:
+        project = database.create_tool_project("medical", payload.name.strip(), "每次生成自动创建的医疗合成数据项目。")
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="项目名称已存在，请换一个名称") from exc
+    medical_template = next(item for item in templates() if item["id"] == "medical-synthea")
+    pipeline = database.create_pipeline({
+        "name": f"医疗合成流程 {now_iso()[:10]}", "description": "医疗页面固定闭环流程。",
+        "domain": "medical", "project_id": project["id"], "nodes": medical_template["nodes"], "edges": medical_template["edges"],
+    })
+    parameters = payload.model_dump(exclude={"name", "confirmed"})
+    parameters["output_policy"] = payload.output_policy
+    parameters["resolved_output_policy"] = resolved_policy
+    parameters["dependency_reasons"] = reasons
+    run = medical_manager.start(pipeline, project["id"], parameters)
+    return {**run, "project": project, "resolved_output_policy": resolved_policy, "dependency_reasons": reasons}
+
+
+@app.get("/api/v3/medical/projects")
+async def v3_medical_projects() -> list[dict[str, Any]]:
+    projects = database.list_projects("medical", include_archived=False)
+    datasets = database.list_datasets()
+    result: list[dict[str, Any]] = []
+    for project in projects:
+        project_datasets = [item for item in datasets if item.get("project_id") == project["id"]]
+        latest = project_datasets[0] if project_datasets else None
+        latest_run = database.get_latest_pipeline_run(project["id"])
+        quality = (latest or {}).get("quality") or {}
+        rules = quality.get("rules") or {}
+        latest_summary = None
+        if latest:
+            latest_summary = {key: latest.get(key) for key in ("id", "name", "project_id", "created_at", "version_id", "version", "status")}
+        result.append({
+            **project,
+            "dataset_count": len(project_datasets),
+            "latest_pipeline_run_id": latest_run["id"] if latest_run else None,
+            "latest_pipeline_run_status": latest_run["status"] if latest_run else None,
+            # 项目列表只返回摘要，避免把完整 Manifest/质量报告重复带给前端。
+            "latest_dataset": latest_summary,
+            "quality_passed": quality.get("passed"),
+            "resource_count": rules.get("resource_count", 0),
+            "timeline_count": rules.get("timeline_count", 0),
+            "task_count": rules.get("task_count", 0),
+        })
+    return result
+
+
+def require_medical_artifact(version_id: str, artifact_id: str) -> tuple[dict[str, Any], dict[str, Any], Path]:
+    version = database.get_dataset_version(version_id)
+    if not version or version.get("domain") != "medical":
+        raise HTTPException(status_code=404, detail="医疗数据集版本不存在")
+    artifact = next((item for item in version.get("manifest", {}).get("artifacts", []) if item.get("id") == artifact_id), None)
+    if not artifact or artifact.get("mode") != "publish":
+        raise HTTPException(status_code=404, detail="产物不存在或尚未发布")
+    root = Path(version.get("artifact_path") or "")
+    path = ensure_within(root / str(artifact["relative_path"]), settings.runtime_root)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="产物文件不存在")
+    return version, artifact, path
+
+
+@app.get("/api/v3/medical/projects/{project_id}/assets")
+async def v3_medical_project_assets(project_id: str) -> dict[str, Any]:
+    project = require_tool_project(project_id, "medical")
+    datasets = [item for item in database.list_datasets() if item.get("project_id") == project_id]
+    versions = [version for dataset in datasets for version in database.list_dataset_versions(dataset["id"])]
+    visible: list[dict[str, Any]] = []
+    for version in versions:
+        manifest = version.get("manifest") or {}
+        visible.append({**version, "artifacts": [item for item in manifest.get("artifacts", []) if item.get("mode") == "publish"]})
+    return {"project": project, "versions": visible}
+
+
+@app.get("/api/v3/dataset-versions/{version_id}/artifacts/{artifact_id}/preview")
+async def v3_preview_medical_artifact(version_id: str, artifact_id: str, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)) -> dict[str, Any]:
+    _, artifact, path = require_medical_artifact(version_id, artifact_id)
+    rows: list[Any] = []
+    total = int(artifact.get("row_count") or 0)
+    if path.suffix == ".csv":
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            for index, row in enumerate(reader):
+                if index < offset:
+                    continue
+                rows.append(row)
+                if len(rows) >= limit:
+                    break
+        return {"artifact": artifact, "offset": offset, "limit": limit, "total": total, "columns": artifact.get("columns", []), "rows": rows}
+    if path.suffix in {".jsonl", ".ndjson"}:
+        with path.open("r", encoding="utf-8") as handle:
+            for index, line in enumerate(handle):
+                if index < offset or not line.strip():
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError:
+                    rows.append({"raw": line.rstrip()})
+                if len(rows) >= limit:
+                    break
+        return {"artifact": artifact, "offset": offset, "limit": limit, "total": total, "rows": rows}
+    content = path.read_text(encoding="utf-8")[:50000]
+    return {"artifact": artifact, "offset": 0, "limit": 1, "total": 1, "content": content}
+
+
+@app.get("/api/v3/dataset-versions/{version_id}/artifacts/{artifact_id}/download")
+async def v3_download_medical_artifact(version_id: str, artifact_id: str) -> FileResponse:
+    _, artifact, path = require_medical_artifact(version_id, artifact_id)
+    return FileResponse(path, filename=path.name, media_type="application/octet-stream")
+
+
+@app.get("/api/v3/datasets")
+async def v3_list_datasets() -> list[dict[str, Any]]:
+    return database.list_datasets()
+
+
+@app.get("/api/v3/datasets/{dataset_id}/versions")
+async def v3_dataset_versions(dataset_id: str) -> list[dict[str, Any]]:
+    return database.list_dataset_versions(dataset_id)
+
+
+@app.post("/api/v3/datasets/{dataset_id}/versions/{version_id}/publish")
+async def v3_publish_dataset(dataset_id: str, version_id: str) -> dict[str, Any]:
+    version = database.get_dataset_version(version_id)
+    if not version or version["dataset_id"] != dataset_id:
+        raise HTTPException(status_code=404, detail="数据集版本不存在")
+    try:
+        return database.publish_dataset_version(version_id) or {}
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/v3/datasets/{dataset_id}/lineage")
+async def v3_dataset_lineage(dataset_id: str) -> list[dict[str, Any]]:
+    versions = database.list_dataset_versions(dataset_id)
+    if not versions:
+        raise HTTPException(status_code=404, detail="数据集不存在")
+    return [event for version in versions for event in database.list_lineage_events(version["id"])]
+
+
+@app.get("/api/v3/integrations/status")
+async def v3_integrations_status() -> dict[str, Any]:
+    snapshot = await integration_snapshot()
+    snapshot["services"]["synthea_worker"] = {**await synthea_status(), "endpoint": settings.synthea_worker_base_url, "version": settings.synthea_commit}
+    return snapshot

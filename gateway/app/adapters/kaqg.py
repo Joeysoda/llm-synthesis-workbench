@@ -72,7 +72,7 @@ def build_kaqg_tools(database: Database, settings: Settings) -> list:
                 summary="KAQG 文本模型尚未就绪",
                 error=ToolError(
                     code="llm_not_ready",
-                    message="请先配置并确认轮换后的 DeepSeek 文本模型密钥",
+                    message="请先配置并确认轮换后的 MiniMax 文本模型密钥",
                 ),
             )
         await ctx.emit("检查 KAQG worker、Neo4j 与 Mosquitto", "stage", {"stage_id": "check"})
@@ -84,8 +84,8 @@ def build_kaqg_tools(database: Database, settings: Settings) -> list:
             "subject_name": params.subject_name,
             "difficulty_counts": params.difficulty_counts.model_dump(),
             "model": settings.llm_model,
-            "llm_base_url": settings.llm_base_url,
-            "llm_api_key": settings.deepseek_api_key,
+            "llm_base_url": settings.llm_proxy_base_url,
+            "llm_api_key": "internal-proxy",
             "kaqg_commit": commit,
             "graph_only": graph_only,
         }

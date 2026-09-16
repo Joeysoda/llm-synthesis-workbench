@@ -1,6 +1,6 @@
 # 合成数据工作台
 
-这是一个本机运行的数据生成与质量检查平台，统一接入 Synthetic Data Kit、Easy Dataset、SynLogic、KAQG 和 Cleanlab。上游项目保持独立，平台通过命令行、HTTP API 或 Python 模块调用，不复制上游界面，也不要求用户手动拼接多段命令。
+这是一个本机运行的数据生成与质量检查平台，统一接入 Synthetic Data Kit、Easy Dataset、SynLogic、KAQG 和 Cleanlab，并提供流程编排、数据资产版本与医疗领域合成数据闭环。上游项目保持独立，平台通过命令行、HTTP API 或 Python 模块调用，不复制上游界面，也不要求用户手动拼接多段命令。
 
 平台面向实际使用流程组织页面：进入工具、选择项目、上传材料、设置参数、生成、检查样本、导出。项目、文件、任务和结果按工具隔离，不需要在多个“任务中心”之间来回切换。
 
@@ -28,6 +28,13 @@
 ```
 
 Web 只提交项目 ID、资产 ID 和工作流参数。模型密钥只进入 Gateway 进程，不会出现在网页、SQLite、导出文件或 Easy Dataset 数据库中。
+
+## 平台模块
+
+- **工具中心**：保留五个工具的独立项目、上传、生成、审核与导出页面。
+- **数据流程**：提供“文档到问答”“CoT 筛选”“分类数据清洗”与“医疗合成数据”模板。保存前检查循环、缺少输出节点和类型不兼容连线。
+- **领域数据**：第一版为医疗领域包，使用 [Synthea](https://github.com/synthetichealth/synthea) 生成完全虚构患者，再校验 FHIR、资源引用、时间线和带来源证据的任务样本。
+- **数据资产**：流程结果形成不可覆盖的版本，保存质量报告、数据卡、工具版本和血缘；质量未通过的版本不能发布。
 
 ## 已完成的功能
 
@@ -69,6 +76,13 @@ Web 只提交项目 ID、资产 ID 和工作流参数。模型密钥只进入 Ga
 - 也可导入已完成的平台任务；无分类标签时只运行有数据依据的异常与重复检查。
 - 建议标签不会自动写回。用户可以接受建议、保留原标签或填写人工标签，原标签始终保留在血缘和审计记录中。
 
+### 医疗领域包（Synthea）
+
+- Synthea 作为按需启动的内部 sidecar，不会在日常 `core` 模式消耗资源。
+- 生成 FHIR R4、Bulk FHIR NDJSON、CSV、患者时间线 JSONL 和至少 20 条有资源证据的任务样本。
+- 确定性质量门禁检查 FHIR 解析、资源引用、患者/资源 ID、时间线，并将 Synthea 的合成联系方式格式保留在审计报告中。
+- 所有输出均标记为合成数据，不代表中国或任何真实医疗机构分布，不能用于诊断或治疗决策。
+
 ## 本机运行
 
 完整、可复用的启动规则见 [INSTRUCTIONS.md](./INSTRUCTIONS.md)。日常默认使用轻量模式，不重新构建镜像，也不启动暂时不用的 sidecar。
@@ -78,14 +92,14 @@ Web 只提交项目 ID、资产 ID 和工作流参数。模型密钥只进入 Ga
 - macOS 或 Linux
 - Docker Desktop / Docker Engine
 - Git
-- DeepSeek 或其他 OpenAI 兼容文本模型的 API Key
+- MiniMax M3 的 OpenAI 兼容文本模型 API Key
 
 当前默认模型配置为：
 
 ```text
-LLM_BASE_URL=https://api.deepseek.com
-LLM_MODEL=deepseek-v4-pro
-LLM_JUDGE_MODEL=deepseek-v4-pro
+LLM_BASE_URL=https://api.minimaxi.com/v1
+LLM_MODEL=MiniMax-M3
+LLM_JUDGE_MODEL=MiniMax-M3
 ```
 
 模型名称需要与实际供应商提供的接口一致。
@@ -99,11 +113,11 @@ cp .env.example .env
 编辑 `.env`：
 
 ```dotenv
-DEEPSEEK_API_KEY=填写本机密钥
+MINIMAX_API_KEY=填写本机密钥
 LLM_CREDENTIAL_ROTATED=true
-LLM_BASE_URL=https://api.deepseek.com
-LLM_MODEL=deepseek-v4-pro
-LLM_JUDGE_MODEL=deepseek-v4-pro
+LLM_BASE_URL=https://api.minimaxi.com/v1
+LLM_MODEL=MiniMax-M3
+LLM_JUDGE_MODEL=MiniMax-M3
 ```
 
 `.env` 已加入忽略规则，不会提交到 Git。
@@ -114,7 +128,7 @@ LLM_JUDGE_MODEL=deepseek-v4-pro
 ./scripts/docker-build.sh all
 ```
 
-构建脚本会先把四个源码型上游项目检出到 `upstream/` 并固定到已验证 commit；Cleanlab 由 Python 锁文件安装。首次构建可能短暂占用较高 CPU，完成后不需要在每次启动时重复执行。`upstream/` 不提交到本仓库。
+构建脚本会先把五个源码型上游项目检出到 `upstream/` 并固定到已验证 commit；Cleanlab 由 Python 锁文件安装。首次构建可能短暂占用较高 CPU，完成后不需要在每次启动时重复执行。`upstream/` 不提交到本仓库。
 
 ### 3. 日常启动
 
@@ -130,6 +144,7 @@ LLM_JUDGE_MODEL=deepseek-v4-pro
 ```bash
 ./scripts/docker-up.sh easy   # 增加 Easy Dataset
 ./scripts/docker-up.sh kaqg   # 增加 KAQG、Neo4j 和 Mosquitto
+./scripts/docker-up.sh medical # 增加 Synthea 医疗领域 worker
 ./scripts/docker-up.sh all    # 完整演示时启动全部服务
 ```
 
@@ -187,6 +202,13 @@ LLM_JUDGE_MODEL=deepseek-v4-pro
 2. 上传 `demo-inputs/cleanlab/数据质量工单.csv`，列名保持 `id / text / label`。
 3. 运行自动训练检查，在结果中分别测试“接受建议、保留原标签、手动修改”。
 4. 下载清洗后的 CSV/JSONL 和包含全部分数的审计报告。
+
+### 生成医疗合成数据
+
+1. 首次执行 `./scripts/docker-build.sh medical`，然后执行 `./scripts/docker-up.sh medical`。
+2. 打开“领域数据 · 医疗”，新建医疗项目，保留默认的 50 人、固定种子和 18–80 岁参数。
+3. 点击“生成并执行质量门禁”，等待流程显示五个阶段完成。
+4. 到“数据资产”查看版本、质量报告和发布按钮；测试材料说明见 `demo-inputs/medical/测试说明.md`。
 
 仓库内的 [demo-inputs](demo-inputs/README.md) 提供了可以直接上传的脱敏示例。
 

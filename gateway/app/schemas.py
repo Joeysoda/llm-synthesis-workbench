@@ -32,7 +32,7 @@ class ExportRequest(BaseModel):
 
 
 ToolId = Literal[
-    "synthetic-data-kit", "easy-dataset", "synlogic", "kaqg", "cleanlab", "legacy"
+    "synthetic-data-kit", "easy-dataset", "synlogic", "kaqg", "cleanlab", "medical", "legacy"
 ]
 
 
@@ -136,3 +136,51 @@ class CleanlabDecisionRequest(BaseModel):
 
 class ProbeRequest(BaseModel):
     model: str | None = None
+
+
+class PipelineNodeModel(BaseModel):
+    id: str = Field(pattern=r"^[a-zA-Z][a-zA-Z0-9_-]{0,79}$")
+    type: str = Field(min_length=3, max_length=80)
+    label: str = Field(min_length=1, max_length=80)
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class PipelineEdgeModel(BaseModel):
+    source: str = Field(min_length=1, max_length=80)
+    target: str = Field(min_length=1, max_length=80)
+
+
+class PipelineCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=1000)
+    domain: str = Field(default="general", pattern=r"^(general|medical)$")
+    project_id: str | None = None
+    nodes: list[PipelineNodeModel] = Field(min_length=2, max_length=30)
+    edges: list[PipelineEdgeModel] = Field(default_factory=list, max_length=60)
+
+
+class PipelinePatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=1000)
+    nodes: list[PipelineNodeModel] | None = Field(default=None, min_length=2, max_length=30)
+    edges: list[PipelineEdgeModel] | None = Field(default=None, max_length=60)
+
+
+class PipelineRunCreate(BaseModel):
+    project_id: str | None = None
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    confirmed: bool = False
+
+
+class MedicalGenerateRequest(BaseModel):
+    population: int = Field(default=50, ge=1, le=500)
+    seed: int = Field(default=20260814, ge=1, le=2_147_483_647)
+    min_age: int = Field(default=18, ge=0, le=110)
+    max_age: int = Field(default=80, ge=0, le=110)
+    gender: Literal["all", "M", "F"] = "all"
+    output_policy: dict[str, Literal["omit", "internal", "publish"]] | None = None
+    confirmed: bool = False
+
+
+class MedicalGenerationCreate(MedicalGenerateRequest):
+    name: str = Field(min_length=1, max_length=120)

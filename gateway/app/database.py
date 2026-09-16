@@ -113,6 +113,88 @@ class Database:
             "CREATE INDEX IF NOT EXISTS runs_project_idx ON runs(project_id, created_at DESC)",
             "CREATE INDEX IF NOT EXISTS events_run_idx ON events(run_id, id)",
             "CREATE INDEX IF NOT EXISTS samples_run_idx ON samples(run_id)",
+            """
+            CREATE TABLE IF NOT EXISTS pipelines (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                domain TEXT NOT NULL DEFAULT 'general',
+                project_id TEXT,
+                nodes_json TEXT NOT NULL,
+                edges_json TEXT NOT NULL,
+                version INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS pipeline_runs (
+                id TEXT PRIMARY KEY,
+                pipeline_id TEXT NOT NULL,
+                project_id TEXT,
+                status TEXT NOT NULL,
+                current_node TEXT NOT NULL DEFAULT '',
+                nodes_json TEXT NOT NULL,
+                error TEXT,
+                result_json TEXT,
+                artifact_path TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                completed_at TEXT,
+                FOREIGN KEY(pipeline_id) REFERENCES pipelines(id) ON DELETE CASCADE,
+                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS pipeline_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pipeline_run_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                message TEXT NOT NULL,
+                data_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(pipeline_run_id) REFERENCES pipeline_runs(id) ON DELETE CASCADE
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS datasets (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                project_id TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS dataset_versions (
+                id TEXT PRIMARY KEY,
+                dataset_id TEXT NOT NULL,
+                version TEXT NOT NULL,
+                status TEXT NOT NULL,
+                manifest_json TEXT NOT NULL,
+                quality_json TEXT NOT NULL,
+                artifact_path TEXT,
+                created_at TEXT NOT NULL,
+                published_at TEXT,
+                FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE,
+                UNIQUE(dataset_id, version)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS lineage_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dataset_version_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                detail_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(dataset_version_id) REFERENCES dataset_versions(id) ON DELETE CASCADE
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS pipeline_runs_pipeline_idx ON pipeline_runs(pipeline_id, created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS pipeline_events_run_idx ON pipeline_events(pipeline_run_id, id)",
+            "CREATE INDEX IF NOT EXISTS dataset_versions_dataset_idx ON dataset_versions(dataset_id, created_at DESC)",
         ]
         with self.connect() as connection:
             for statement in statements:
@@ -159,6 +241,209 @@ class Database:
                 connection.execute(
                     "ALTER TABLE runs ADD COLUMN progress_json TEXT NOT NULL DEFAULT '{}'"
                 )
+
+    def create_pipeline(self, data: dict[str, Any]) -> dict[str, Any]:
+        pipeline_id = str(uuid.uuid4())
+        timestamp = now_iso()
+        with self.connect() as connection:
+            connection.execute(
+                """INSERT INTO pipelines(id,name,description,domain,project_id,nodes_json,edges_json,version,created_at,updated_at)
+                   VALUES(?,?,?,?,?,?,?,1,?,?)""",
+                (pipeline_id, data["name"].strip(), data.get("description", "").strip(),
+                 data.get("domain", "general"), data.get("project_id"), json_dump(data["nodes"]),
+                 json_dump(data["edges"]), timestamp, timestamp),
+            )
+        return self.get_pipeline(pipeline_id) or {}
+
+    def list_pipelines(self) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute("SELECT * FROM pipelines ORDER BY updated_at DESC").fetchall()
+        return [self._decode_pipeline(row) for row in rows]
+
+    def get_pipeline(self, pipeline_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute("SELECT * FROM pipelines WHERE id = ?", (pipeline_id,)).fetchone()
+        return self._decode_pipeline(row) if row else None
+
+    def update_pipeline(self, pipeline_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
+        pipeline = self.get_pipeline(pipeline_id)
+        if not pipeline:
+            return None
+        values: dict[str, Any] = {"updated_at": now_iso(), "version": int(pipeline["version"]) + 1}
+        for key in ("name", "description"):
+            if key in data and data[key] is not None:
+                values[key] = str(data[key]).strip()
+        if data.get("nodes") is not None:
+            values["nodes_json"] = json_dump(data["nodes"])
+        if data.get("edges") is not None:
+            values["edges_json"] = json_dump(data["edges"])
+        columns = ", ".join(f"{key} = ?" for key in values)
+        with self.connect() as connection:
+            connection.execute(f"UPDATE pipelines SET {columns} WHERE id = ?", (*values.values(), pipeline_id))
+        return self.get_pipeline(pipeline_id)
+
+    @staticmethod
+    def _decode_pipeline(row: sqlite3.Row) -> dict[str, Any]:
+        data = dict(row)
+        data["nodes"] = json_load(data.pop("nodes_json"), [])
+        data["edges"] = json_load(data.pop("edges_json"), [])
+        return data
+
+    def create_pipeline_run(self, pipeline_id: str, project_id: str | None, nodes: list[dict[str, Any]]) -> dict[str, Any]:
+        run_id = str(uuid.uuid4())
+        timestamp = now_iso()
+        state = [{**node, "status": "pending"} for node in nodes]
+        with self.connect() as connection:
+            connection.execute(
+                "INSERT INTO pipeline_runs(id,pipeline_id,project_id,status,nodes_json,created_at) VALUES(?,?,?,'queued',?,?)",
+                (run_id, pipeline_id, project_id, json_dump(state), timestamp),
+            )
+        return self.get_pipeline_run(run_id) or {}
+
+    def add_pipeline_event(
+        self, pipeline_run_id: str, event_type: str, message: str, data: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        timestamp = now_iso()
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """INSERT INTO pipeline_events(pipeline_run_id,event_type,message,data_json,created_at)
+                   VALUES(?,?,?,?,?)""",
+                (pipeline_run_id, event_type, message, json_dump(data or {}), timestamp),
+            )
+            event_id = cursor.lastrowid
+            row = connection.execute("SELECT * FROM pipeline_events WHERE id = ?", (event_id,)).fetchone()
+        return self._decode_pipeline_event(row)
+
+    def list_pipeline_events(self, pipeline_run_id: str, after_id: int = 0) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM pipeline_events WHERE pipeline_run_id=? AND id>? ORDER BY id",
+                (pipeline_run_id, after_id),
+            ).fetchall()
+        return [self._decode_pipeline_event(row) for row in rows]
+
+    @staticmethod
+    def _decode_pipeline_event(row: sqlite3.Row) -> dict[str, Any]:
+        item = dict(row)
+        item["data"] = json_load(item.pop("data_json"), {})
+        return item
+
+    def get_pipeline_run(self, run_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute("SELECT * FROM pipeline_runs WHERE id = ?", (run_id,)).fetchone()
+        return self._decode_pipeline_run(row) if row else None
+
+    def get_latest_pipeline_run(self, project_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM pipeline_runs WHERE project_id = ? ORDER BY created_at DESC LIMIT 1",
+                (project_id,),
+            ).fetchone()
+        return self._decode_pipeline_run(row) if row else None
+
+    def update_pipeline_run(self, run_id: str, **fields: Any) -> dict[str, Any] | None:
+        allowed = {"status", "current_node", "nodes_json", "error", "result_json", "artifact_path", "started_at", "completed_at"}
+        values = {key: value for key, value in fields.items() if key in allowed}
+        for key in ("nodes_json", "result_json"):
+            if key in values and not isinstance(values[key], str):
+                values[key] = json_dump(values[key])
+        if not values:
+            return self.get_pipeline_run(run_id)
+        columns = ", ".join(f"{key} = ?" for key in values)
+        with self.connect() as connection:
+            connection.execute(f"UPDATE pipeline_runs SET {columns} WHERE id = ?", (*values.values(), run_id))
+        return self.get_pipeline_run(run_id)
+
+    @staticmethod
+    def _decode_pipeline_run(row: sqlite3.Row) -> dict[str, Any]:
+        data = dict(row)
+        data["nodes"] = json_load(data.pop("nodes_json"), [])
+        data["result"] = json_load(data.pop("result_json"), None)
+        return data
+
+    def create_dataset_version(self, *, name: str, domain: str, project_id: str | None, manifest: dict[str, Any], quality: dict[str, Any], artifact_path: str | None) -> dict[str, Any]:
+        dataset_id = str(uuid.uuid4())
+        version_id = str(uuid.uuid4())
+        timestamp = now_iso()
+        with self.connect() as connection:
+            connection.execute("INSERT INTO datasets(id,name,domain,project_id,created_at) VALUES(?,?,?,?,?)", (dataset_id, name, domain, project_id, timestamp))
+            connection.execute("INSERT INTO dataset_versions(id,dataset_id,version,status,manifest_json,quality_json,artifact_path,created_at) VALUES(?,?,?,'review_required',?,?,?,?)", (version_id, dataset_id, "v1", json_dump(manifest), json_dump(quality), artifact_path, timestamp))
+            connection.execute("INSERT INTO lineage_events(dataset_version_id,event_type,detail_json,created_at) VALUES(?,?,?,?)", (version_id, "created", json_dump({"synthetic": manifest.get("synthetic", False)}), timestamp))
+        return self.get_dataset_version(version_id) or {}
+
+    def list_datasets(self) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """SELECT d.*, p.display_name AS project_name,
+                          v.id AS version_id, v.version, v.status, v.quality_json,
+                          v.manifest_json, v.artifact_path,
+                          v.created_at AS version_created_at
+                   FROM datasets d
+                   LEFT JOIN projects p ON p.id = d.project_id
+                   LEFT JOIN dataset_versions v ON v.id = (
+                       SELECT id FROM dataset_versions x
+                       WHERE x.dataset_id = d.id ORDER BY x.created_at DESC LIMIT 1
+                   )
+                   ORDER BY d.created_at DESC"""
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["quality"] = json_load(item.pop("quality_json", None), {})
+            item["manifest"] = json_load(item.pop("manifest_json", None), {})
+            result.append(item)
+        return result
+
+    def get_dataset_version(self, version_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute("SELECT v.*, d.name AS dataset_name, d.domain, d.project_id FROM dataset_versions v JOIN datasets d ON d.id=v.dataset_id WHERE v.id=?", (version_id,)).fetchone()
+        if not row:
+            return None
+        item = dict(row)
+        item["manifest"] = json_load(item.pop("manifest_json"), {})
+        item["quality"] = json_load(item.pop("quality_json"), {})
+        return item
+
+    def update_dataset_version_metadata(
+        self,
+        version_id: str,
+        *,
+        manifest: dict[str, Any] | None = None,
+        quality: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        updates: dict[str, str] = {}
+        if manifest is not None:
+            updates["manifest_json"] = json_dump(manifest)
+        if quality is not None:
+            updates["quality_json"] = json_dump(quality)
+        if updates:
+            columns = ", ".join(f"{key} = ?" for key in updates)
+            with self.connect() as connection:
+                connection.execute(
+                    f"UPDATE dataset_versions SET {columns} WHERE id = ?",
+                    (*updates.values(), version_id),
+                )
+        return self.get_dataset_version(version_id)
+
+    def list_dataset_versions(self, dataset_id: str) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute("SELECT * FROM dataset_versions WHERE dataset_id=? ORDER BY created_at DESC", (dataset_id,)).fetchall()
+        return [self.get_dataset_version(row["id"]) for row in rows]
+
+    def publish_dataset_version(self, version_id: str) -> dict[str, Any] | None:
+        version = self.get_dataset_version(version_id)
+        if not version:
+            return None
+        if not version["quality"].get("passed"):
+            raise ValueError("质量门禁未通过，不能发布")
+        with self.connect() as connection:
+            connection.execute("UPDATE dataset_versions SET status='published', published_at=? WHERE id=?", (now_iso(), version_id))
+        return self.get_dataset_version(version_id)
+
+    def list_lineage_events(self, version_id: str) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute("SELECT * FROM lineage_events WHERE dataset_version_id=? ORDER BY id", (version_id,)).fetchall()
+        return [{**dict(row), "detail": json_load(row["detail_json"], {})} for row in rows]
 
     def create_project(self, name: str, description: str = "") -> dict[str, Any]:
         project_id = str(uuid.uuid4())

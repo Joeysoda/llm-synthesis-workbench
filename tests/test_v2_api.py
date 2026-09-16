@@ -21,16 +21,16 @@ def test_easy_dataset_model_reference_keeps_loopback_proxy_fields():
             "providerId": "custom",
             "endpoint": "http://127.0.0.1:18000/internal/llm/v1",
             "apiKey": "local-gateway-proxy",
-            "modelId": "deepseek-v4-pro",
-            "modelName": "deepseek-v4-pro",
+            "modelId": "MiniMax-M3",
+            "modelName": "MiniMax-M3",
             "type": "text",
         },
-        "deepseek-v4-pro",
+        "MiniMax-M3",
         "text",
     )
     assert reference["endpoint"].startswith("http://127.0.0.1:18000/")
     assert reference["apiKey"] == "local-gateway-proxy"
-    assert reference["modelId"] == "deepseek-v4-pro"
+    assert reference["modelId"] == "MiniMax-M3"
 
 
 def test_eval_type_map_covers_every_page_question_type():
@@ -188,7 +188,7 @@ def test_cot_enhance_accepts_qa_pairs(monkeypatch):
 
 
 def test_probe_does_not_send_request_when_rotation_is_unconfirmed(monkeypatch):
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-redacted")
+    monkeypatch.setenv("MINIMAX_API_KEY", "sk-test-redacted")
     monkeypatch.setenv("LLM_CREDENTIAL_ROTATED", "false")
     response = client.post("/api/v2/integrations/text/probe", json={})
     assert response.status_code == 200

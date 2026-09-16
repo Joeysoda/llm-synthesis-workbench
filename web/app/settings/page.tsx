@@ -154,7 +154,7 @@ export default function SettingsPage() {
       <section className="settings-note">
         <strong>如何注入新密钥</strong>
         <p>
-          在启动网关的终端环境中设置新的 DEEPSEEK_API_KEY 和
+          在启动网关的终端环境中设置新的 MINIMAX_API_KEY 和
           LLM_CREDENTIAL_ROTATED=true，然后重启本机服务。密钥不会写入数据库、日志或网页。
         </p>
       </section>
